@@ -1,0 +1,155 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Traefik",
+  "projectDescription": "A modern cloud-native application proxy and load balancer for deploying microservices with automatic service discovery",
+  "theme": "aspen",
+  "primaryColor": "#37BEC8",
+  "lightColor": "#5DD3DC",
+  "darkColor": "#24ABB5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "concepts",
+              "install"
+            ]
+          },
+          {
+            "group": "Core Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/entrypoints",
+              "configuration/routers",
+              "configuration/services",
+              "configuration/providers"
+            ]
+          },
+          {
+            "group": "Providers",
+            "pages": [
+              "providers/overview",
+              "providers/docker",
+              "providers/kubernetes",
+              "providers/kubernetes-crd",
+              "providers/kubernetes-gateway",
+              "providers/file",
+              "providers/consul",
+              "providers/etcd",
+              "providers/ecs",
+              "providers/nomad"
+            ]
+          },
+          {
+            "group": "Routing",
+            "pages": [
+              "routing/overview",
+              "routing/routers",
+              "routing/services",
+              "routing/entrypoints"
+            ]
+          },
+          {
+            "group": "Middlewares",
+            "pages": [
+              "middlewares/overview",
+              "middlewares/http/overview",
+              "middlewares/http/authentication",
+              "middlewares/http/headers",
+              "middlewares/http/ratelimit",
+              "middlewares/http/redirectscheme",
+              "middlewares/http/stripprefix",
+              "middlewares/http/compress",
+              "middlewares/http/circuitbreaker",
+              "middlewares/tcp/overview"
+            ]
+          },
+          {
+            "group": "HTTPS & TLS",
+            "pages": [
+              "https/overview",
+              "https/acme",
+              "https/tls"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "observability/overview",
+              "observability/logs",
+              "observability/metrics",
+              "observability/tracing",
+              "observability/access-logs"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/deployment",
+              "operations/cli",
+              "operations/api",
+              "operations/dashboard",
+              "operations/ping"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Advanced",
+        "groups": [
+          {
+            "group": "Plugins",
+            "pages": [
+              "plugins/overview",
+              "plugins/usage"
+            ]
+          },
+          {
+            "group": "Migration",
+            "pages": [
+              "migration/v2-to-v3",
+              "migration/guide"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/overview",
+              "contributing/building",
+              "contributing/guidelines"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Automatic service discovery and configuration",
+    "Support for Docker, Kubernetes, Consul, etcd, and more",
+    "Built-in Let's Encrypt support for automatic HTTPS",
+    "Multiple load balancing algorithms",
+    "HTTP/2, gRPC, and WebSocket support",
+    "Middleware system for request/response manipulation",
+    "Circuit breakers and retry mechanisms",
+    "Real-time metrics and observability",
+    "Web dashboard for monitoring",
+    "Plugin system for extensibility"
+  ],
+  "publicApiSurface": [
+    "EntryPoints - Network entry points (HTTP, HTTPS, TCP, UDP)",
+    "Routers - Request routing based on rules",
+    "Services - Backend service configuration and load balancing",
+    "Middlewares - Request/response manipulation",
+    "Providers - Docker, Kubernetes, File, Consul, etcd, ECS",
+    "ACME - Automatic certificate management",
+    "Metrics - Prometheus, Datadog, StatsD, InfluxDB",
+    "Tracing - Jaeger, Zipkin, OpenTelemetry",
+    "API - REST API for configuration and monitoring",
+    "Dashboard - Web UI for visualization"
+  ]
+}
