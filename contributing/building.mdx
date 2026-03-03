@@ -1,0 +1,479 @@
+---
+title: Building and Testing Traefik
+description: Set up your development environment, build Traefik from source, and run tests locally.
+---
+
+# Building and Testing Traefik
+
+This guide will help you compile your own Traefik binary from source and run the test suite locally.
+
+## Prerequisites
+
+Before you begin, ensure you have the following tools installed:
+
+### Required Tools
+
+- **[Docker](https://github.com/docker/docker)** - For building images and running integration tests
+- **`make`** - Build automation tool
+- **[Go](https://go.dev/)** - Go programming language (check `.go-version` file for required version)
+- **[misspell](https://github.com/golangci/misspell)** - Spell checker for code
+- **[shellcheck](https://github.com/koalaman/shellcheck)** - Shell script linter
+
+<Note>
+**Docker Desktop Users**: If you're using Docker Desktop, you'll also need [Tailscale](https://tailscale.com/) for certain integration tests.
+</Note>
+
+### Verify Installation
+
+Check that your tools are properly installed:
+
+<CodeGroup>
+```bash Go Version
+go version
+# Should match version in .go-version file
+```
+
+```bash Docker
+docker --version
+```
+
+```bash Make
+make --version
+```
+</CodeGroup>
+
+## Environment Setup
+
+### Clone the Repository
+
+<Tip>
+**Recommended Location**: Clone Traefik into `~/go/src/github.com/traefik/traefik`. This follows the official Go workspace hierarchy and ensures dependencies resolve properly.
+</Tip>
+
+```bash
+mkdir -p ~/go/src/github.com/traefik
+cd ~/go/src/github.com/traefik
+git clone https://github.com/traefik/traefik.git
+cd traefik
+```
+
+### Configure Go Environment
+
+Set your `GOPATH` and `PATH` environment variables:
+
+```bash
+export GOPATH=~/go
+export PATH=$PATH:$GOPATH/bin
+```
+
+<Tip>
+**Persist Settings**: Add these exports to your `.bashrc` or `.bash_profile` to make them permanent.
+</Tip>
+
+### Verify Environment
+
+Run `go env` to verify your setup:
+
+```bash
+go env
+```
+
+You should see output similar to:
+
+```bash
+GOARCH="amd64"
+GOBIN=""
+GOEXE=""
+GOHOSTARCH="amd64"
+GOHOSTOS="linux"
+GOOS="linux"
+GOPATH="/home/yourusername/go"
+```
+
+## Building Traefik
+
+### Generate WebUI Assets
+
+Traefik includes a web UI that needs to be built first:
+
+<Steps>
+  <Step title="Build WebUI Docker Image">
+    ```bash
+    make build-webui-image
+    ```
+  </Step>
+  
+  <Step title="Generate WebUI Static Files">
+    ```bash
+    make generate-webui
+    ```
+    This creates static assets in `webui/static/`
+  </Step>
+</Steps>
+
+### Build the Binary
+
+Now you can build the Traefik binary:
+
+```bash
+make binary
+```
+
+This command:
+1. Runs code generation (`make generate`)
+2. Generates WebUI assets (`make generate-webui`)
+3. Compiles the binary with version information
+
+<Note>
+The build process uses `CGO_ENABLED=0` to create a static binary that doesn't depend on C libraries.
+</Note>
+
+### Build Output
+
+After building, you'll find the executable in the `dist` directory:
+
+```bash
+ls dist/
+# Output: dist/linux/amd64/traefik (or your platform)
+```
+
+You can run it directly:
+
+```bash
+./dist/linux/amd64/traefik version
+```
+
+### Platform-Specific Builds
+
+Build for specific platforms:
+
+<CodeGroup>
+```bash Linux ARM64
+make binary-linux-arm64
+```
+
+```bash Linux AMD64
+make binary-linux-amd64
+```
+
+```bash Windows AMD64
+make binary-windows-amd64
+```
+
+```bash All Platforms
+make crossbinary-default
+```
+</CodeGroup>
+
+### Quick Build (Development)
+
+For faster development iterations, use the default target:
+
+```bash
+make default
+```
+
+This runs `make generate` and `make binary` but skips WebUI regeneration if already built.
+
+## Running Tests
+
+### Test Suite Overview
+
+Traefik has three main test suites:
+
+- **Unit Tests** - Fast tests for individual packages
+- **Integration Tests** - Tests with real infrastructure (Docker, Kubernetes, etc.)
+- **WebUI Unit Tests** - Tests for the web interface
+
+### Run All Tests
+
+```bash
+make test
+```
+
+This runs all test suites: `test-ui-unit`, `test-unit`, and `test-integration`.
+
+### Unit Tests
+
+Run only the unit tests:
+
+```bash
+make test-unit
+```
+
+Example output:
+
+```bash
+GOOS=linux GOARCH=amd64 go test -cover "-coverprofile=cover.out" -v ./pkg/... ./cmd/...
+ok      github.com/traefik/traefik/v3/pkg/config   0.005s  coverage: 4.1% of statements
+Test success
+```
+
+### Integration Tests
+
+Run integration tests (requires Docker):
+
+```bash
+make test-integration
+```
+
+<Note>
+**Test Duration**: Integration tests can take 20+ minutes as they spin up real infrastructure.
+</Note>
+
+#### Pull Required Images
+
+To avoid timeouts, pull Docker images before running integration tests:
+
+```bash
+make pull-images
+```
+
+#### Run Specific Tests
+
+Run a specific test suite or test:
+
+<CodeGroup>
+```bash Specific Suite
+TESTFLAGS="-test.run TestAccessLogSuite" make test-integration
+```
+
+```bash Specific Test
+TESTFLAGS="-test.run TestAccessLogSuite -testify.m ^TestAccessLog$" make test-integration
+```
+</CodeGroup>
+
+### WebUI Tests
+
+Run WebUI unit tests:
+
+```bash
+make test-ui-unit
+```
+
+### Gateway API Conformance Tests
+
+Test Kubernetes Gateway API compatibility:
+
+```bash
+make test-gateway-api-conformance
+```
+
+<Note>
+This requires building a Docker image first with `make build-image-dirty`.
+</Note>
+
+### Knative Conformance Tests
+
+Test Knative compatibility:
+
+```bash
+make test-knative-conformance
+```
+
+## Code Validation
+
+### Linting
+
+Run the linter using golangci-lint:
+
+```bash
+make lint
+```
+
+Traefik uses comprehensive linting rules defined in `.golangci.yml`, including:
+- `gofumpt` - Stricter gofmt
+- `gci` - Import organization
+- `govet` - Go vet checks
+- `errcheck` - Error handling verification
+
+### File Validation
+
+Validate code and documentation:
+
+```bash
+make validate-files
+```
+
+This checks:
+- Misspellings in code and docs
+- Shell script syntax
+- Vendor dependencies
+
+### Complete Validation
+
+Run all validation checks:
+
+```bash
+make validate
+```
+
+This runs both `make lint` and `make validate-files`.
+
+## Pre-Commit Checklist
+
+Before submitting a pull request, run these commands locally:
+
+<Steps>
+  <Step title="Generate Code">
+    ```bash
+    make generate
+    ```
+    Generates dynamic and static configuration documentation.
+  </Step>
+  
+  <Step title="Generate CRDs">
+    ```bash
+    make generate-crd
+    ```
+    Generates Kubernetes CRD clientset and manifests.
+  </Step>
+  
+  <Step title="Validate Code">
+    ```bash
+    make validate
+    ```
+    Runs linters and file validation.
+  </Step>
+  
+  <Step title="Pull Images">
+    ```bash
+    make pull-images
+    ```
+    Ensures integration test images are ready.
+  </Step>
+  
+  <Step title="Run Tests">
+    ```bash
+    make test
+    ```
+    Runs all test suites.
+  </Step>
+</Steps>
+
+<Warning>
+Your PR will not be reviewed until all these checks pass on CI. Running them locally first saves time and ensures faster review.
+</Warning>
+
+## Building Docker Images
+
+### Build Development Image
+
+Build a local Docker image for testing:
+
+```bash
+make build-image
+```
+
+This:
+1. Cleans the WebUI static directory
+2. Builds binaries for linux/amd64 and linux/arm64
+3. Creates a Docker image tagged `traefik/traefik:latest`
+
+### Quick Image Build
+
+If you've already built the WebUI:
+
+```bash
+make build-image-dirty
+```
+
+This skips WebUI regeneration for faster builds.
+
+### Multi-Architecture Images
+
+Build for multiple architectures:
+
+```bash
+make multi-arch-image-latest
+```
+
+## Code Generation
+
+### Generate Configuration Docs
+
+```bash
+make generate-genconf
+```
+
+Generates code from dynamic configuration using `github.com/traefik/genconf`.
+
+### Generate CRD Resources
+
+```bash
+make generate-crd
+```
+
+Generates:
+- Kubernetes CRD clientset
+- CRD manifest files
+
+## Code Formatting
+
+Format your code before committing:
+
+```bash
+make fmt
+```
+
+This runs `gofmt` with the `-s` flag for simplification.
+
+## Docker Desktop + Tailscale Setup
+
+If you're using Docker Desktop, some integration tests require Tailscale:
+
+<Steps>
+  <Step title="Create Auth Key">
+    Create a `tailscale.secret` file in the `integration` directory with a [Tailscale auth key](https://tailscale.com/kb/1085/auth-keys) (ephemeral, reusable recommended).
+  </Step>
+  
+  <Step title="Configure ACLs">
+    Add this to your Tailscale ACLs to auto-approve routes:
+    ```json
+    "autoApprovers": {
+      "routes": {
+        "172.31.42.0/24": ["your_tailscale_identity"]
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Build Fails
+
+- Ensure Go version matches `.go-version`
+- Check that `GOPATH` is set correctly
+- Verify all dependencies are installed
+
+### Tests Timeout
+
+- Run `make pull-images` before integration tests
+- Check Docker is running and has sufficient resources
+- For specific tests, use `TESTFLAGS` to run a subset
+
+### Linter Errors
+
+- Run `make fmt` to auto-format code
+- Check `.golangci.yml` for specific linter rules
+- Fix errors one by one or disable specific rules if appropriate
+
+## Next Steps
+
+Now that you can build and test Traefik:
+
+1. Review the [Contribution Guidelines](/contributing/guidelines) for code standards
+2. Pick an issue to work on
+3. Make your changes and run the validation steps
+4. Submit a pull request!
+
+## Additional Make Targets
+
+View all available make targets:
+
+```bash
+make help
+```
+
+This displays all targets with descriptions.

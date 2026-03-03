@@ -1,0 +1,268 @@
+---
+title: "CircuitBreaker Middleware"
+description: "Prevent cascading failures by stopping requests to unhealthy services with the CircuitBreaker middleware in Traefik Proxy."
+---
+
+# CircuitBreaker Middleware
+
+Don't Waste Time Calling Unhealthy Services
+
+The circuit breaker protects your system from stacking requests to unhealthy services, preventing cascading failures.
+
+## How It Works
+
+When your system is healthy, the circuit is **closed** (normal operations). When your system becomes unhealthy, the circuit **opens**, and requests are handled by a fallback mechanism instead of being forwarded to the service.
+
+The circuit breaker constantly monitors services to assess health.
+
+<Note>
+The CircuitBreaker only analyzes what happens **after** its position within the middleware chain. What happens before has no impact on its state.
+</Note>
+
+<Warning>
+Each router gets its own instance of a circuit breaker. One instance can be open while another remains closed - their state is not shared.
+</Warning>
+
+## Configuration Examples
+
+### Latency-Based Circuit Breaker
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.latency-check.circuitbreaker.expression=LatencyAtQuantileMS(50.0) > 100"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: latency-check
+spec:
+  circuitBreaker:
+    expression: LatencyAtQuantileMS(50.0) > 100
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    latency-check:
+      circuitBreaker:
+        expression: "LatencyAtQuantileMS(50.0) > 100"
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.latency-check.circuitBreaker]
+    expression = "LatencyAtQuantileMS(50.0) > 100"
+```
+
+</CodeGroup>
+
+### Error Rate Circuit Breaker
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.error-check.circuitbreaker.expression=NetworkErrorRatio() > 0.30"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: error-check
+spec:
+  circuitBreaker:
+    expression: NetworkErrorRatio() > 0.30
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    error-check:
+      circuitBreaker:
+        expression: "NetworkErrorRatio() > 0.30"
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.error-check.circuitBreaker]
+    expression = "NetworkErrorRatio() > 0.30"
+```
+
+</CodeGroup>
+
+## Circuit States
+
+### Closed
+Normal operation. The circuit breaker collects metrics and evaluates the expression at each `checkPeriod` interval.
+
+### Open  
+Fallback mechanism is active. Returns HTTP 503 (or configured `responseCode`) for `fallbackDuration`.
+
+### Recovering
+Gradually increases traffic to the service for `recoveryDuration`. If successful, the circuit closes. If the service fails, the circuit opens again.
+
+## Configuration Options
+
+### Expression Metrics
+
+<ParamField path="expression" type="string" required>
+  Expression that triggers the circuit breaker when matched. Can use:
+  
+  - `NetworkErrorRatio()` - Network error ratio
+  - `ResponseCodeRatio(from, to, dividedByFrom, dividedByTo)` - Status code ratio
+  - `LatencyAtQuantileMS(quantile)` - Latency at quantile in milliseconds
+</ParamField>
+
+#### NetworkErrorRatio
+
+Triggers when network errors reach a threshold:
+
+```
+NetworkErrorRatio() > 0.30  // Opens at 30% network errors
+```
+
+#### ResponseCodeRatio
+
+Triggers based on HTTP status code ratios:
+
+```
+ResponseCodeRatio(500, 600, 0, 600) > 0.25  // Opens if 25% of requests return 5XX
+```
+
+The operation is: `sum(to -> from) / sum(dividedByFrom -> dividedByTo)`
+
+<Note>`from` is inclusive, `to` is exclusive.</Note>
+
+#### LatencyAtQuantileMS
+
+Triggers when latency exceeds threshold:
+
+```
+LatencyAtQuantileMS(50.0) > 100  // Opens when median latency exceeds 100ms
+```
+
+<Note>Quantile value must be a floating point number (with `.0`).</Note>
+
+#### Combining Metrics
+
+Use `&&` (AND) or `||` (OR) operators:
+
+```
+ResponseCodeRatio(500, 600, 0, 600) > 0.30 || NetworkErrorRatio() > 0.10
+```
+
+### Timing Options
+
+<ParamField path="checkPeriod" type="duration" default="100ms">
+  Interval between condition checks when in standby state.
+</ParamField>
+
+<ParamField path="fallbackDuration" type="duration" default="10s">
+  Duration to wait before attempting recovery from tripped state.
+</ParamField>
+
+<ParamField path="recoveryDuration" type="duration" default="10s">
+  Duration to try recovering once in recovering state.
+</ParamField>
+
+### Fallback Options
+
+<ParamField path="responseCode" type="integer" default="503">
+  HTTP status code returned while circuit is open.
+</ParamField>
+
+## Usage Examples
+
+### Combined Metrics
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  middlewares:
+    combined-check:
+      circuitBreaker:
+        expression: "ResponseCodeRatio(500, 600, 0, 600) > 0.30 || NetworkErrorRatio() > 0.10"
+        checkPeriod: 200ms
+        fallbackDuration: 30s
+        recoveryDuration: 15s
+        responseCode: 503
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.combined-check.circuitBreaker]
+    expression = "ResponseCodeRatio(500, 600, 0, 600) > 0.30 || NetworkErrorRatio() > 0.10"
+    checkPeriod = "200ms"
+    fallbackDuration = "30s"
+    recoveryDuration = "15s"
+    responseCode = 503
+```
+
+</CodeGroup>
+
+### Custom Response Code
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  middlewares:
+    custom-fallback:
+      circuitBreaker:
+        expression: "LatencyAtQuantileMS(99.0) > 500"
+        responseCode: 502
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.custom-fallback.circuitBreaker]
+    expression = "LatencyAtQuantileMS(99.0) > 500"
+    responseCode = 502
+```
+
+</CodeGroup>
+
+### With Other Middlewares
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  routers:
+    protected-api:
+      rule: "Host(`api.example.com`)"
+      service: api-service
+      middlewares:
+        - api-auth
+        - api-circuit-breaker
+        - api-ratelimit
+
+  middlewares:
+    api-circuit-breaker:
+      circuitBreaker:
+        expression: "NetworkErrorRatio() > 0.20 || ResponseCodeRatio(500, 600, 0, 600) > 0.25"
+        fallbackDuration: 20s
+        recoveryDuration: 10s
+```
+
+```toml File (TOML)
+[http.routers]
+  [http.routers.protected-api]
+    rule = "Host(`api.example.com`)"
+    service = "api-service"
+    middlewares = ["api-auth", "api-circuit-breaker", "api-ratelimit"]
+
+[http.middlewares]
+  [http.middlewares.api-circuit-breaker.circuitBreaker]
+    expression = "NetworkErrorRatio() > 0.20 || ResponseCodeRatio(500, 600, 0, 600) > 0.25"
+    fallbackDuration = "20s"
+    recoveryDuration = "10s"
+```
+
+</CodeGroup>

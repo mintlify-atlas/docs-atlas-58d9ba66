@@ -1,0 +1,828 @@
+---
+title: 'Migration Best Practices'
+description: 'Essential guidelines and best practices for safely migrating Traefik Proxy between versions'
+---
+
+# Migration Best Practices
+
+This guide provides general best practices and strategies for migrating Traefik Proxy between versions, ensuring minimal downtime and risk.
+
+## General Migration Principles
+
+### Plan Thoroughly
+
+Successful migrations start with comprehensive planning:
+
+<Steps>
+  <Step title="Review Release Notes">
+    Carefully read changelog and migration guides for all versions between your current and target version.
+  </Step>
+  
+  <Step title="Identify Breaking Changes">
+    Document all breaking changes that affect your configuration.
+  </Step>
+  
+  <Step title="Create Migration Timeline">
+    Establish realistic timelines with buffer for unexpected issues.
+  </Step>
+  
+  <Step title="Prepare Rollback Plan">
+    Document step-by-step rollback procedures before starting.
+  </Step>
+</Steps>
+
+### Test Before Production
+
+<Warning>
+  Never migrate production directly without testing in a non-production environment first.
+</Warning>
+
+Essential testing environments:
+
+- **Development Environment:** Initial testing and experimentation
+- **Staging Environment:** Production-like testing with realistic workloads
+- **Canary/Preview Environment:** Gradual production traffic testing
+
+---
+
+## Pre-Migration Checklist
+
+Before starting any migration:
+
+### 1. Backup Everything
+
+<Note>
+  Always create complete backups before making any changes.
+</Note>
+
+**What to Backup:**
+
+- ✅ Static configuration files
+- ✅ Dynamic configuration (if using file provider)
+- ✅ ACME certificates and `acme.json` file
+- ✅ Custom TLS certificates
+- ✅ Kubernetes manifests and CRDs
+- ✅ Docker Compose files or Swarm stack definitions
+- ✅ Environment variables and secrets
+- ✅ Plugin configurations
+
+**Backup Example:**
+
+```bash
+# Backup configuration directory
+tar -czf traefik-backup-$(date +%Y%m%d).tar.gz /etc/traefik/
+
+# Backup Kubernetes resources
+kubectl get ingressroute,middleware,tlsoption,tlsstore -A -o yaml > traefik-k8s-backup.yaml
+
+# Backup Docker Swarm config
+docker config inspect traefik-config > traefik-swarm-backup.json
+```
+
+### 2. Document Current State
+
+Create comprehensive documentation of your current setup:
+
+- Current Traefik version
+- Enabled providers and their configurations
+- Number of routers, services, and middleware
+- Custom features or plugins in use
+- Integration points (monitoring, logging, tracing)
+- Performance baselines (request rate, latency, error rate)
+
+### 3. Establish Monitoring
+
+<Warning>
+  Proper monitoring is critical for detecting issues during migration.
+</Warning>
+
+Monitoring requirements:
+
+**Metrics to Track:**
+- Request rate (requests per second)
+- Response time percentiles (p50, p90, p95, p99)
+- Error rates by status code (4xx, 5xx)
+- Active connections
+- Backend health status
+- Certificate expiration dates
+- Resource usage (CPU, memory, network)
+
+**Recommended Tools:**
+- Prometheus + Grafana for metrics
+- ELK Stack or Loki for logs
+- Jaeger or OTLP-compatible backend for tracing
+- Alert manager for critical notifications
+
+### 4. Test Configuration Compatibility
+
+Validate configuration before deployment:
+
+```bash
+# Test configuration syntax
+traefik version --config=/path/to/traefik.yml
+
+# Run in dry-run mode (if available)
+traefik --configFile=/path/to/traefik.yml --dry-run
+```
+
+---
+
+## Migration Strategies
+
+Choose the right strategy based on your environment and risk tolerance:
+
+### Strategy 1: Rolling Update
+
+**Best for:** Kubernetes deployments, high-availability setups
+
+**Advantages:**
+- Minimal downtime
+- Gradual rollout
+- Easy rollback
+
+**Implementation:**
+
+<Accordion title="Kubernetes Rolling Update">
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: traefik
+  spec:
+    replicas: 3
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 1  # One pod down at a time
+        maxSurge: 1        # One extra pod during rollout
+    template:
+      metadata:
+        labels:
+          app: traefik
+          version: v3.6
+      spec:
+        containers:
+        - name: traefik
+          image: traefik:v3.6
+          # ... configuration
+  ```
+  
+  Monitor the rollout:
+  ```bash
+  kubectl rollout status deployment/traefik -n traefik
+  kubectl get pods -n traefik -w
+  ```
+</Accordion>
+
+### Strategy 2: Blue-Green Deployment
+
+**Best for:** Critical production environments, maximum safety
+
+**Advantages:**
+- Zero downtime
+- Full testing in production environment
+- Instant rollback capability
+
+**Implementation:**
+
+<Steps>
+  <Step title="Deploy Green Environment">
+    Deploy new version alongside existing (blue) environment.
+  </Step>
+  
+  <Step title="Route Test Traffic">
+    Direct a small percentage of traffic to green environment.
+  </Step>
+  
+  <Step title="Monitor Performance">
+    Compare metrics between blue and green environments.
+  </Step>
+  
+  <Step title="Gradually Shift Traffic">
+    Incrementally increase traffic to green environment (10%, 25%, 50%, 100%).
+  </Step>
+  
+  <Step title="Decommission Blue">
+    Once stable, remove the old blue environment.
+  </Step>
+</Steps>
+
+<Accordion title="Kubernetes Blue-Green Example">
+  ```yaml
+  # Green deployment (new version)
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: traefik-green
+  spec:
+    replicas: 3
+    selector:
+      matchLabels:
+        app: traefik
+        version: green
+    template:
+      metadata:
+        labels:
+          app: traefik
+          version: green
+      spec:
+        containers:
+        - name: traefik
+          image: traefik:v3.6
+  
+  ---
+  # Service (switch between blue/green)
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: traefik
+  spec:
+    selector:
+      app: traefik
+      version: green  # Switch to 'blue' for rollback
+    ports:
+    - port: 80
+      targetPort: 8080
+  ```
+</Accordion>
+
+### Strategy 3: Canary Deployment
+
+**Best for:** Progressive validation with real traffic
+
+**Advantages:**
+- Early issue detection
+- Minimal impact radius
+- Data-driven decision making
+
+**Implementation:**
+
+<Steps>
+  <Step title="Deploy Canary Instances">
+    Deploy small number of new version instances (5-10% of total).
+  </Step>
+  
+  <Step title="Route Canary Traffic">
+    Direct small percentage of production traffic to canary.
+  </Step>
+  
+  <Step title="Monitor Metrics">
+    Compare error rates, latency, and performance against stable instances.
+  </Step>
+  
+  <Step title="Expand or Rollback">
+    If metrics are good, expand canary. If not, rollback immediately.
+  </Step>
+</Steps>
+
+### Strategy 4: In-Place Upgrade
+
+**Best for:** Single-instance deployments, development environments
+
+<Warning>
+  In-place upgrades result in downtime. Only use for non-critical environments.
+</Warning>
+
+**Steps:**
+1. Stop current Traefik instance
+2. Update configuration files
+3. Update Traefik binary or container image
+4. Start new version
+5. Verify functionality
+
+---
+
+## Configuration Management
+
+### Version Control
+
+Always use version control for Traefik configurations:
+
+```bash
+# Initialize git repository for configs
+cd /etc/traefik
+git init
+git add .
+git commit -m "Baseline configuration before migration"
+
+# Create migration branch
+git checkout -b migration-to-v3
+
+# Make changes, then commit
+git add .
+git commit -m "Update configuration for Traefik v3"
+```
+
+**Best Practices:**
+- Tag each production release: `git tag v3.6.0-production`
+- Document changes in commit messages
+- Use branches for testing different configurations
+- Never commit secrets (use `.gitignore`)
+
+### Configuration Validation
+
+Validate configurations before deployment:
+
+<Accordion title="Static Configuration Validation">
+  ```bash
+  # Check for syntax errors
+  traefik version --configFile=traefik.yml
+  
+  # Validate against schema (if using YAML)
+  yamllint traefik.yml
+  
+  # Test provider connectivity
+  traefik healthcheck --configFile=traefik.yml
+  ```
+</Accordion>
+
+<Accordion title="Dynamic Configuration Validation">
+  ```bash
+  # For File provider
+  traefik version --configFile=traefik.yml --file.directory=/etc/traefik/dynamic
+  
+  # For Kubernetes
+  kubectl apply --dry-run=client -f ingressroute.yaml
+  kubectl apply --dry-run=server -f ingressroute.yaml
+  
+  # Validate CRD syntax
+  kubectl apply --validate=true --dry-run=client -f middleware.yaml
+  ```
+</Accordion>
+
+### Environment-Specific Configurations
+
+Maintain separate configurations for different environments:
+
+```
+traefik-config/
+├── base/
+│   ├── traefik.yml          # Common configuration
+│   └── dynamic/             # Shared dynamic configs
+├── development/
+│   ├── traefik.yml          # Dev overrides
+│   └── dynamic/
+├── staging/
+│   ├── traefik.yml          # Staging overrides
+│   └── dynamic/
+└── production/
+    ├── traefik.yml          # Production overrides
+    └── dynamic/
+```
+
+---
+
+## Testing Strategy
+
+### Test Levels
+
+<Steps>
+  <Step title="Unit Testing">
+    Test individual configuration components (routers, middleware, services).
+  </Step>
+  
+  <Step title="Integration Testing">
+    Test complete routing flows and middleware chains.
+  </Step>
+  
+  <Step title="Performance Testing">
+    Load test to ensure performance meets requirements.
+  </Step>
+  
+  <Step title="Security Testing">
+    Verify TLS, middleware security, and access controls.
+  </Step>
+</Steps>
+
+### Testing Checklist
+
+**Routing Tests:**
+- ✅ All defined routes are accessible
+- ✅ Path matching works as expected
+- ✅ Host-based routing functions correctly
+- ✅ Priority-based routing resolves correctly
+- ✅ Wildcard and regex patterns match appropriately
+
+**Middleware Tests:**
+- ✅ Authentication middleware blocks unauthorized access
+- ✅ Rate limiting activates under load
+- ✅ Headers are added/removed correctly
+- ✅ Redirects function as configured
+- ✅ Compression activates for appropriate content types
+- ✅ Circuit breakers trigger on backend failures
+
+**TLS/SSL Tests:**
+- ✅ HTTPS endpoints respond correctly
+- ✅ Certificate validation works
+- ✅ SNI routing functions properly
+- ✅ TLS versions and cipher suites are correct
+- ✅ ACME certificate generation/renewal works
+- ✅ HTTP to HTTPS redirection functions
+
+**Backend Tests:**
+- ✅ Load balancing distributes traffic correctly
+- ✅ Health checks detect backend failures
+- ✅ Sticky sessions maintain session affinity
+- ✅ Circuit breaker prevents cascading failures
+- ✅ Retry logic handles transient failures
+
+**Observability Tests:**
+- ✅ Metrics are exported correctly
+- ✅ Access logs contain expected fields
+- ✅ Tracing spans are created and exported
+- ✅ Health check endpoint responds
+- ✅ Dashboard is accessible (if enabled)
+
+### Automated Testing
+
+Implement automated tests for consistent validation:
+
+<Accordion title="Shell Script Testing Example">
+  ```bash
+  #!/bin/bash
+  # test-traefik.sh
+  
+  set -e
+  
+  TRAEFIK_URL="https://traefik.example.com"
+  
+  echo "Testing HTTP routing..."
+  response=$(curl -s -o /dev/null -w "%{http_code}" $TRAEFIK_URL/api)
+  if [ "$response" -eq 200 ]; then
+    echo "✓ API route accessible"
+  else
+    echo "✗ API route failed: HTTP $response"
+    exit 1
+  fi
+  
+  echo "Testing HTTPS..."
+  if curl -s --cacert ca.crt $TRAEFIK_URL > /dev/null; then
+    echo "✓ HTTPS working"
+  else
+    echo "✗ HTTPS failed"
+    exit 1
+  fi
+  
+  echo "Testing middleware..."
+  response=$(curl -s -H "X-Custom-Header: test" $TRAEFIK_URL/headers)
+  if echo "$response" | grep -q "X-Custom-Header"; then
+    echo "✓ Header middleware working"
+  else
+    echo "✗ Header middleware failed"
+    exit 1
+  fi
+  
+  echo "All tests passed!"
+  ```
+</Accordion>
+
+---
+
+## Rollback Procedures
+
+Prepare rollback procedures before migration:
+
+### Rollback Decision Criteria
+
+Rollback immediately if:
+
+- ❌ Error rate increases by >5%
+- ❌ Response time degrades by >20%
+- ❌ Critical functionality breaks
+- ❌ Backend health checks fail
+- ❌ Certificate issues prevent HTTPS
+- ❌ Configuration errors prevent startup
+
+### Kubernetes Rollback
+
+```bash
+# View deployment history
+kubectl rollout history deployment/traefik -n traefik
+
+# Rollback to previous version
+kubectl rollout undo deployment/traefik -n traefik
+
+# Rollback to specific revision
+kubectl rollout undo deployment/traefik -n traefik --to-revision=3
+
+# Check rollback status
+kubectl rollout status deployment/traefik -n traefik
+
+# Verify pods are running
+kubectl get pods -n traefik
+```
+
+### Docker Swarm Rollback
+
+```bash
+# Automatic rollback on failure
+docker service update \
+  --rollback \
+  traefik
+
+# Manual rollback to previous image
+docker service update \
+  --image traefik:v2.11 \
+  traefik
+
+# Verify service status
+docker service ps traefik
+```
+
+### Configuration Rollback
+
+```bash
+# Using version control
+git checkout main  # or previous stable branch
+git log --oneline  # find last stable commit
+git checkout <commit-hash>
+
+# Restore from backup
+tar -xzf traefik-backup-20260301.tar.gz -C /etc/traefik/
+
+# Restart Traefik
+systemctl restart traefik
+# or
+docker restart traefik
+```
+
+---
+
+## Observability During Migration
+
+### Logging Best Practices
+
+Enable detailed logging during migration:
+
+```yaml
+# traefik.yml
+log:
+  level: DEBUG  # Use DEBUG during migration, INFO in production
+  format: json  # Structured logging for easier parsing
+  filePath: /var/log/traefik/traefik.log
+
+accessLog:
+  filePath: /var/log/traefik/access.log
+  format: json
+  bufferingSize: 100
+  fields:
+    defaultMode: keep
+    headers:
+      defaultMode: keep
+```
+
+### Metrics Monitoring
+
+Track key metrics before, during, and after migration:
+
+**Pre-Migration Baseline:**
+- Average request rate
+- Response time percentiles
+- Error rate by status code
+- Resource utilization
+
+**During Migration:**
+- Compare metrics between old and new versions
+- Watch for anomalies or degradation
+- Track rollout progress
+
+**Post-Migration:**
+- Verify metrics return to baseline
+- Monitor for 24-48 hours for delayed issues
+- Document any performance improvements
+
+### Alerting Configuration
+
+Set up alerts for critical issues:
+
+<Accordion title="Prometheus Alert Rules Example">
+  ```yaml
+  groups:
+  - name: traefik_migration
+    interval: 30s
+    rules:
+    - alert: TraefikHighErrorRate
+      expr: rate(traefik_service_requests_total{code=~"5.."}[5m]) > 0.05
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High error rate detected during migration"
+        description: "Error rate is {{ $value }} req/s"
+    
+    - alert: TraefikHighLatency
+      expr: histogram_quantile(0.95, traefik_service_request_duration_seconds_bucket) > 1
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High latency detected"
+        description: "P95 latency is {{ $value }}s"
+    
+    - alert: TraefikInstanceDown
+      expr: up{job="traefik"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Traefik instance is down"
+  ```
+</Accordion>
+
+---
+
+## Common Migration Pitfalls
+
+### Pitfall 1: Insufficient Testing
+
+<Warning>
+  **Problem:** Migrating to production without adequate testing.
+  
+  **Solution:** Always test in non-production environments that mirror production configuration and load.
+</Warning>
+
+### Pitfall 2: Ignoring Breaking Changes
+
+<Warning>
+  **Problem:** Not reviewing changelog for breaking changes.
+  
+  **Solution:** Systematically review all breaking changes between versions and update configuration accordingly.
+</Warning>
+
+### Pitfall 3: No Rollback Plan
+
+<Warning>
+  **Problem:** Starting migration without documented rollback procedure.
+  
+  **Solution:** Document and test rollback procedures before migrating production.
+</Warning>
+
+### Pitfall 4: Missing Backups
+
+<Warning>
+  **Problem:** No backups of configuration or certificates.
+  
+  **Solution:** Create complete backups of all configuration, certificates, and state before migration.
+</Warning>
+
+### Pitfall 5: Inadequate Monitoring
+
+<Warning>
+  **Problem:** Not monitoring key metrics during migration.
+  
+  **Solution:** Establish comprehensive monitoring and alerting before starting migration.
+</Warning>
+
+### Pitfall 6: Big Bang Migration
+
+<Warning>
+  **Problem:** Migrating all instances simultaneously.
+  
+  **Solution:** Use progressive deployment strategies (rolling, blue-green, canary).
+</Warning>
+
+### Pitfall 7: Skipping Version Compatibility
+
+<Warning>
+  **Problem:** Assuming backward compatibility without verification.
+  
+  **Solution:** Explicitly test compatibility with v2 syntax when migrating to v3.
+</Warning>
+
+---
+
+## Post-Migration Tasks
+
+After successful migration:
+
+<Steps>
+  <Step title="Monitor Extended Period">
+    Continue monitoring for 24-48 hours to catch delayed issues.
+  </Step>
+  
+  <Step title="Document Changes">
+    Update documentation with new configuration and any lessons learned.
+  </Step>
+  
+  <Step title="Clean Up">
+    Remove old configurations, unused middleware, and deprecated options.
+  </Step>
+  
+  <Step title="Optimize Configuration">
+    Take advantage of new features and optimizations in the new version.
+  </Step>
+  
+  <Step title="Update Disaster Recovery">
+    Update disaster recovery procedures with new version information.
+  </Step>
+  
+  <Step title="Team Knowledge Transfer">
+    Share migration experience and new features with team.
+  </Step>
+</Steps>
+
+### Configuration Optimization
+
+After migration, optimize your configuration:
+
+- Remove compatibility shims (e.g., `core.defaultRuleSyntax: v2`)
+- Adopt new features (passive health checks, TCP health checks, etc.)
+- Simplify router rules using v3 syntax improvements
+- Review and update deprecated middleware
+- Optimize load balancing strategies
+- Update TLS configurations for better security
+
+### Performance Tuning
+
+Tune Traefik for optimal performance:
+
+```yaml
+# Example optimized configuration
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      middlewares:
+        - compress@file
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - compress@file
+        - security-headers@file
+    http3:
+      advertisedPort: 443
+
+# Enable keep-alive
+serversTransport:
+  maxIdleConnsPerHost: 200
+  forwardingTimeouts:
+    dialTimeout: 30s
+    responseHeaderTimeout: 30s
+    idleConnTimeout: 90s
+```
+
+---
+
+## Migration Checklist Template
+
+Use this checklist for your migrations:
+
+### Pre-Migration
+
+- [ ] Review release notes and changelog
+- [ ] Identify all breaking changes
+- [ ] Create configuration backups
+- [ ] Backup certificates and secrets
+- [ ] Document current state and baselines
+- [ ] Set up monitoring and alerting
+- [ ] Prepare rollback procedures
+- [ ] Update test environment
+- [ ] Test new version in development
+- [ ] Test new version in staging
+- [ ] Create migration timeline
+- [ ] Schedule migration window
+- [ ] Notify stakeholders
+
+### During Migration
+
+- [ ] Deploy to test environment first
+- [ ] Verify all tests pass
+- [ ] Deploy to staging environment
+- [ ] Run load tests
+- [ ] Begin production rollout
+- [ ] Monitor metrics continuously
+- [ ] Watch error logs
+- [ ] Verify backend health
+- [ ] Test critical user flows
+- [ ] Validate SSL/TLS
+- [ ] Check middleware behavior
+
+### Post-Migration
+
+- [ ] Monitor for 24-48 hours
+- [ ] Verify all metrics stable
+- [ ] Check for deprecation warnings
+- [ ] Update documentation
+- [ ] Clean up old configurations
+- [ ] Remove compatibility modes
+- [ ] Optimize configuration
+- [ ] Update disaster recovery docs
+- [ ] Conduct team retrospective
+- [ ] Document lessons learned
+
+---
+
+## Additional Resources
+
+- [Traefik Documentation](https://doc.traefik.io/traefik/)
+- [v2 to v3 Migration Guide](/migration/v2-to-v3)
+- [Traefik Community Forum](https://community.traefik.io/)
+- [Traefik GitHub Issues](https://github.com/traefik/traefik/issues)
+- [Traefik Blog](https://traefik.io/blog/)
+
+<Note>
+  Following these best practices will help ensure your Traefik migration is smooth, safe, and successful. Remember: thorough planning and testing are the keys to successful migrations.
+</Note>

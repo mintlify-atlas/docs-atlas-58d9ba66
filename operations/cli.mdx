@@ -1,0 +1,444 @@
+---
+title: "CLI"
+description: "Complete reference for Traefik command-line interface commands, flags, and options"
+---
+
+# Command Line Interface
+
+The Traefik command line interface provides commands and flags for managing and operating Traefik instances.
+
+## Overview
+
+Traefik exposes its configuration through a CLI that supports multiple commands and flags. All configuration options can be set via command-line flags, environment variables, or configuration files.
+
+## Basic Usage
+
+```bash
+traefik [command] [flags] [arguments]
+```
+
+Use `traefik [command] --help` for detailed help on any command.
+
+<Note>
+  All flags are case-insensitive and can be used with either single dash (`-flag`) or double dash (`--flag`) notation.
+</Note>
+
+## Available Commands
+
+Traefik provides the following commands:
+
+### Main Command
+
+Running `traefik` without arguments starts the Traefik proxy with the default configuration:
+
+```bash
+traefik
+```
+
+<CodeGroup>
+```bash With Config File
+traefik --configFile=/etc/traefik/traefik.yml
+```
+
+```bash With CLI Flags
+traefik \
+  --entrypoints.web.address=:80 \
+  --entrypoints.websecure.address=:443 \
+  --providers.docker=true
+```
+
+```bash With Environment Variables
+export TRAEFIK_ENTRYPOINTS_WEB_ADDRESS=:80
+export TRAEFIK_PROVIDERS_DOCKER=true
+traefik
+```
+</CodeGroup>
+
+### healthcheck
+
+Calls the Traefik `/ping` endpoint to check the health of the Traefik instance.
+
+**Description**: Performs a health check by calling the `/ping` endpoint. Returns exit code `0` if healthy, `1` otherwise.
+
+**Usage**:
+
+```bash
+traefik healthcheck [flags]
+```
+
+**Examples**:
+
+```bash
+# Basic health check
+$ traefik healthcheck
+OK: http://:8082/ping
+
+# Health check with custom configuration
+$ traefik healthcheck --configFile=/etc/traefik/traefik.yml
+OK: http://localhost:8080/ping
+```
+
+<Note>
+  The `ping` endpoint must be enabled in the static configuration for the healthcheck command to work. See [Ping Documentation](/operations/ping) for configuration details.
+</Note>
+
+**Use Cases**:
+
+<Steps>
+  <Step title="Docker Health Checks">
+    Use with Docker's `HEALTHCHECK` instruction:
+    
+    ```dockerfile
+    FROM traefik:v3.2
+    HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+      CMD traefik healthcheck || exit 1
+    ```
+  </Step>
+
+  <Step title="Kubernetes Liveness Probes">
+    Configure as a Kubernetes liveness probe:
+    
+    ```yaml
+    livenessProbe:
+      exec:
+        command:
+          - traefik
+          - healthcheck
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    ```
+  </Step>
+
+  <Step title="Systemd Service Monitoring">
+    Monitor Traefik service health with systemd watchdog:
+    
+    ```bash
+    # Check health before restart
+    ExecStartPre=/usr/local/bin/traefik healthcheck
+    ```
+  </Step>
+</Steps>
+
+**Source Reference**: The healthcheck command is implemented in `cmd/healthcheck/healthcheck.go:14-23`
+
+### version
+
+Displays the current Traefik version information.
+
+**Usage**:
+
+```bash
+traefik version
+```
+
+**Output**:
+
+```bash
+Version:      v3.2.0
+Codename:     Tatooine
+Go version:   go1.23.1
+Built:        2024-09-24T14:30:00Z
+OS/Arch:      linux/amd64
+```
+
+**Examples**:
+
+```bash
+# Display version information
+$ traefik version
+Version:      v3.2.0
+Codename:     Tatooine
+Go version:   go1.23.1
+Built:        2024-09-24T14:30:00Z
+OS/Arch:      linux/amd64
+
+# Use in scripts to check version
+if traefik version | grep -q "v3.2"; then
+  echo "Correct version installed"
+fi
+```
+
+**Source Reference**: The version command is implemented in `cmd/version/version.go:20-34`
+
+## Common Flags
+
+### Configuration File
+
+<ParamField path="--configFile" type="string">
+  Path to the configuration file. If specified, all other flags are ignored.
+  
+  ```bash
+  traefik --configFile=/etc/traefik/traefik.yml
+  ```
+</ParamField>
+
+### Entry Points
+
+<ParamField path="--entrypoints.<name>.address" type="string">
+  Define an entry point listening address.
+  
+  ```bash
+  # HTTP on port 80
+  traefik --entrypoints.web.address=:80
+  
+  # HTTPS on port 443
+  traefik --entrypoints.websecure.address=:443
+  
+  # Custom port
+  traefik --entrypoints.custom.address=:8080
+  ```
+</ParamField>
+
+<ParamField path="--entrypoints.<name>.asDefault" type="boolean" default="false">
+  Mark this entry point as a default entry point.
+  
+  ```bash
+  traefik --entrypoints.web.asDefault=true
+  ```
+</ParamField>
+
+### Providers
+
+<ParamField path="--providers.docker" type="boolean" default="false">
+  Enable Docker provider.
+  
+  ```bash
+  traefik --providers.docker=true --providers.docker.exposedByDefault=false
+  ```
+</ParamField>
+
+<ParamField path="--providers.file.directory" type="string">
+  Directory to watch for dynamic configuration files.
+  
+  ```bash
+  traefik --providers.file.directory=/etc/traefik/dynamic
+  ```
+</ParamField>
+
+<ParamField path="--providers.file.filename" type="string">
+  Path to a specific configuration file.
+  
+  ```bash
+  traefik --providers.file.filename=/etc/traefik/dynamic.yml
+  ```
+</ParamField>
+
+### API and Dashboard
+
+<ParamField path="--api" type="boolean" default="false">
+  Enable the API.
+  
+  ```bash
+  traefik --api=true
+  ```
+</ParamField>
+
+<ParamField path="--api.dashboard" type="boolean" default="true">
+  Enable the dashboard (requires API to be enabled).
+  
+  ```bash
+  traefik --api=true --api.dashboard=true
+  ```
+</ParamField>
+
+<ParamField path="--api.insecure" type="boolean" default="false">
+  Enable API in insecure mode (not recommended for production).
+  
+  ```bash
+  # Development only
+  traefik --api.insecure=true
+  ```
+</ParamField>
+
+<ParamField path="--api.debug" type="boolean" default="false">
+  Enable debug endpoints under `/debug/`.
+  
+  ```bash
+  traefik --api=true --api.debug=true
+  ```
+</ParamField>
+
+### Ping
+
+<ParamField path="--ping" type="boolean" default="false">
+  Enable the ping endpoint.
+  
+  ```bash
+  traefik --ping=true
+  ```
+</ParamField>
+
+<ParamField path="--ping.entryPoint" type="string" default="traefik">
+  Entry point to expose the ping endpoint.
+  
+  ```bash
+  traefik --ping=true --ping.entryPoint=web
+  ```
+</ParamField>
+
+### Logging
+
+<ParamField path="--log.level" type="string" default="ERROR">
+  Log level: DEBUG, INFO, WARN, ERROR, FATAL, PANIC.
+  
+  ```bash
+  traefik --log.level=DEBUG
+  ```
+</ParamField>
+
+<ParamField path="--log.format" type="string" default="common">
+  Log format: `common` or `json`.
+  
+  ```bash
+  traefik --log.format=json
+  ```
+</ParamField>
+
+<ParamField path="--log.filePath" type="string">
+  Path to log file. By default, logs are written to stdout.
+  
+  ```bash
+  traefik --log.filePath=/var/log/traefik/traefik.log
+  ```
+</ParamField>
+
+<ParamField path="--accessLog" type="boolean" default="false">
+  Enable access logs.
+  
+  ```bash
+  traefik --accessLog=true --accessLog.filePath=/var/log/traefik/access.log
+  ```
+</ParamField>
+
+### Metrics
+
+<ParamField path="--metrics.prometheus" type="boolean" default="false">
+  Enable Prometheus metrics.
+  
+  ```bash
+  traefik --metrics.prometheus=true
+  ```
+</ParamField>
+
+<ParamField path="--metrics.prometheus.entryPoint" type="string" default="traefik">
+  Entry point to expose Prometheus metrics.
+  
+  ```bash
+  traefik --metrics.prometheus=true --metrics.prometheus.entryPoint=metrics
+  ```
+</ParamField>
+
+## Flag Syntax
+
+Traefik supports multiple flag syntax formats:
+
+<CodeGroup>
+```bash Boolean Flags
+# Set to true
+traefik --flag
+traefik --flag=true
+traefik -f true
+
+# Set to false
+traefik --flag=false
+traefik -f false
+```
+
+```bash String Flags
+# With equals sign
+traefik --flag=value
+
+# With space
+traefik --flag value
+traefik -f value
+```
+
+```bash Nested Flags
+# Dot notation for nested configuration
+traefik --entrypoints.web.address=:80
+traefik --providers.docker.exposedByDefault=false
+```
+</CodeGroup>
+
+## Environment Variables
+
+All CLI flags can be set using environment variables with the prefix `TRAEFIK_`:
+
+```bash
+# Convert flag to environment variable
+--flag.name=value → TRAEFIK_FLAG_NAME=value
+
+# Examples
+export TRAEFIK_ENTRYPOINTS_WEB_ADDRESS=:80
+export TRAEFIK_PROVIDERS_DOCKER=true
+export TRAEFIK_API_DASHBOARD=true
+export TRAEFIK_LOG_LEVEL=DEBUG
+
+traefik
+```
+
+<Note>
+  Environment variables use underscores (`_`) instead of dots (`.`) and are always uppercase.
+</Note>
+
+## Configuration Priority
+
+Traefik applies configuration in the following order (highest to lowest priority):
+
+<Steps>
+  <Step title="CLI Flags">
+    Flags passed directly on the command line.
+    
+    ```bash
+    traefik --log.level=DEBUG
+    ```
+  </Step>
+
+  <Step title="Environment Variables">
+    Environment variables with the `TRAEFIK_` prefix.
+    
+    ```bash
+    export TRAEFIK_LOG_LEVEL=DEBUG
+    ```
+  </Step>
+
+  <Step title="Configuration File">
+    Settings in the static configuration file.
+    
+    ```yaml
+    log:
+      level: DEBUG
+    ```
+  </Step>
+
+  <Step title="Default Values">
+    Built-in default values.
+  </Step>
+</Steps>
+
+## Complete Example
+
+Here's a complete example combining multiple flags:
+
+```bash
+traefik \
+  --entrypoints.web.address=:80 \
+  --entrypoints.websecure.address=:443 \
+  --providers.docker=true \
+  --providers.docker.exposedByDefault=false \
+  --providers.file.directory=/etc/traefik/dynamic \
+  --api=true \
+  --api.dashboard=true \
+  --ping=true \
+  --log.level=INFO \
+  --log.format=json \
+  --accessLog=true \
+  --metrics.prometheus=true
+```
+
+## Additional Resources
+
+- [API Documentation](/operations/api)
+- [Ping Health Checks](/operations/ping)
+- [Dashboard Usage](/operations/dashboard)
+- [Deployment Guide](/operations/deployment)

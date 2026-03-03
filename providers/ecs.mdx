@@ -1,0 +1,667 @@
+---
+title: 'AWS ECS Provider'
+description: 'Automatically discover and route AWS ECS services using task labels with Traefik.'
+---
+
+# AWS ECS Provider
+
+A Story of Labels & Elastic Containers
+
+Attach labels to your AWS ECS tasks and let Traefik automatically discover and route traffic. The ECS provider integrates with Amazon Elastic Container Service for seamless service discovery in AWS.
+
+## Quick Start
+
+<Steps>
+  <Step title="Set Up IAM Permissions">
+    Create an IAM policy for Traefik:
+    
+    ```json ecs-policy.json
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "TraefikECSReadAccess",
+          "Effect": "Allow",
+          "Action": [
+            "ecs:ListClusters",
+            "ecs:DescribeClusters",
+            "ecs:ListTasks",
+            "ecs:DescribeTasks",
+            "ecs:DescribeContainerInstances",
+            "ecs:DescribeTaskDefinition",
+            "ec2:DescribeInstances",
+            "ssm:DescribeInstanceInformation"
+          ],
+          "Resource": "*"
+        }
+      ]
+    }
+    ```
+    
+    Attach to Traefik's task role or instance role.
+  </Step>
+  
+  <Step title="Enable ECS Provider">
+    <CodeGroup>
+    ```yaml traefik.yml
+    providers:
+      ecs:
+        autoDiscoverClusters: true
+        region: "us-east-1"
+        exposedByDefault: false
+    ```
+    
+    ```toml traefik.toml
+    [providers.ecs]
+      autoDiscoverClusters = true
+      region = "us-east-1"
+      exposedByDefault = false
+    ```
+    
+    ```bash CLI
+    --providers.ecs=true
+    --providers.ecs.autodiscoverclusters=true
+    --providers.ecs.region=us-east-1
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Add Labels to Task Definition">
+    ```json task-definition.json
+    {
+      "containerDefinitions": [
+        {
+          "name": "web",
+          "image": "myapp:latest",
+          "dockerLabels": {
+            "traefik.enable": "true",
+            "traefik.http.routers.web.rule": "Host(`example.com`)",
+            "traefik.http.routers.web.entrypoints": "websecure",
+            "traefik.http.services.web.loadbalancer.server.port": "8080"
+          }
+        }
+      ]
+    }
+    ```
+  </Step>
+  
+  <Step title="Deploy Task">
+    ```bash
+    aws ecs register-task-definition --cli-input-json file://task-definition.json
+    aws ecs run-task --cluster my-cluster --task-definition my-task
+    ```
+    
+    Traefik automatically discovers the task!
+  </Step>
+</Steps>
+
+## How It Works
+
+The ECS provider:
+
+1. **Polls ECS clusters** at configured intervals
+2. **Lists running tasks** in specified clusters
+3. **Reads task labels** from container definitions
+4. **Discovers task IPs** from ENIs or container instances
+5. **Creates routes** dynamically based on labels
+6. **Updates on changes** when tasks start/stop
+
+## Provider Configuration
+
+### autoDiscoverClusters
+
+_Default: `false`_
+
+Automatically discover all ECS clusters:
+
+```yaml
+providers:
+  ecs:
+    autoDiscoverClusters: true
+```
+
+When `false`, only configured clusters are watched.
+
+### clusters
+
+_Default: `["default"]`_
+
+Specific clusters to watch:
+
+```yaml
+providers:
+  ecs:
+    clusters:
+      - "production"
+      - "staging"
+```
+
+<Note>
+  Ignored when `autoDiscoverClusters: true`.
+</Note>
+
+### region
+
+_Optional, Default: Auto-detected_
+
+AWS region:
+
+```yaml
+providers:
+  ecs:
+    region: "us-west-2"
+```
+
+Auto-detected from:
+- EC2 metadata (for EC2 tasks)
+- `AWS_REGION` environment variable (for Fargate)
+
+### accessKeyID / secretAccessKey
+
+_Optional, Default: Auto-detected_
+
+Explicit AWS credentials:
+
+```yaml
+providers:
+  ecs:
+    region: "us-east-1"
+    accessKeyID: "${AWS_ACCESS_KEY_ID}"
+    secretAccessKey: "${AWS_SECRET_ACCESS_KEY}"
+```
+
+<Warning>
+  Prefer IAM roles over hardcoded credentials. Credentials are auto-detected from:
+  - Environment variables
+  - Shared credentials file (`~/.aws/credentials`)
+  - EC2 instance role
+  - ECS task role
+</Warning>
+
+### exposedByDefault
+
+_Default: `true`_
+
+Expose all tasks by default:
+
+```yaml
+providers:
+  ecs:
+    exposedByDefault: false  # Require traefik.enable=true label
+```
+
+### constraints
+
+_Optional, Default: `""`_
+
+Filter tasks by labels:
+
+<CodeGroup>
+```yaml Environment
+providers:
+  ecs:
+    constraints: "Label(`environment`, `production`)"
+```
+
+```yaml Multiple
+providers:
+  ecs:
+    constraints: "Label(`team`, `backend`) && Label(`region`, `us-east`)"
+```
+
+```yaml Regex
+providers:
+  ecs:
+    constraints: "LabelRegex(`version`, `v[0-9]+`)"
+```
+</CodeGroup>
+
+### healthyTasksOnly
+
+_Default: `false`_
+
+Only discover healthy tasks:
+
+```yaml
+providers:
+  ecs:
+    healthyTasksOnly: true
+```
+
+Tasks must have `HEALTHY` health status.
+
+### refreshSeconds
+
+_Default: `15`_
+
+Polling interval in seconds:
+
+```yaml
+providers:
+  ecs:
+    refreshSeconds: 30
+```
+
+### defaultRule
+
+_Default: ``Host(`{{ normalize .Name }}`)``_
+
+Default routing rule:
+
+```yaml
+providers:
+  ecs:
+    defaultRule: "Host(`{{ .Name }}.example.com`)"
+```
+
+### ecsAnywhere
+
+_Default: `false`_
+
+Enable ECS Anywhere support:
+
+```yaml
+providers:
+  ecs:
+    ecsAnywhere: true
+```
+
+<Note>
+  Requires `ssm:DescribeInstanceInformation` IAM permission.
+</Note>
+
+## Task Definition Examples
+
+### Basic Web Service
+
+<CodeGroup>
+```json Fargate
+{
+  "family": "web-app",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "web",
+      "image": "myapp:v1.0",
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "dockerLabels": {
+        "traefik.enable": "true",
+        "traefik.http.routers.web.rule": "Host(`app.example.com`)",
+        "traefik.http.routers.web.entrypoints": "websecure",
+        "traefik.http.routers.web.tls.certresolver": "letsencrypt",
+        "traefik.http.services.web.loadbalancer.server.port": "8080"
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3
+      }
+    }
+  ]
+}
+```
+
+```json EC2
+{
+  "family": "web-app-ec2",
+  "networkMode": "bridge",
+  "containerDefinitions": [
+    {
+      "name": "web",
+      "image": "myapp:v1.0",
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 0,
+          "protocol": "tcp"
+        }
+      ],
+      "dockerLabels": {
+        "traefik.enable": "true",
+        "traefik.http.routers.web.rule": "Host(`app.example.com`)",
+        "traefik.http.services.web.loadbalancer.server.port": "8080"
+      }
+    }
+  ]
+}
+```
+</CodeGroup>
+
+### Service with Middleware
+
+```json
+{
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "myapi:latest",
+      "dockerLabels": {
+        "traefik.enable": "true",
+        
+        "traefik.http.routers.api.rule": "Host(`api.example.com`) && PathPrefix(`/v1`)",
+        "traefik.http.routers.api.entrypoints": "websecure",
+        "traefik.http.routers.api.middlewares": "api-auth,rate-limit",
+        
+        "traefik.http.middlewares.api-auth.basicauth.users": "admin:$apr1$...",
+        "traefik.http.middlewares.rate-limit.ratelimit.average": "100",
+        "traefik.http.middlewares.rate-limit.ratelimit.burst": "50",
+        
+        "traefik.http.services.api.loadbalancer.server.port": "8080",
+        "traefik.http.services.api.loadbalancer.healthcheck.path": "/health",
+        "traefik.http.services.api.loadbalancer.healthcheck.interval": "10s"
+      }
+    }
+  ]
+}
+```
+
+### Multiple Containers per Task
+
+```json
+{
+  "family": "app-with-sidecar",
+  "networkMode": "awsvpc",
+  "containerDefinitions": [
+    {
+      "name": "app",
+      "image": "myapp:latest",
+      "portMappings": [{"containerPort": 8080}],
+      "dockerLabels": {
+        "traefik.enable": "true",
+        "traefik.http.routers.app.rule": "Host(`app.example.com`)",
+        "traefik.http.services.app.loadbalancer.server.port": "8080"
+      }
+    },
+    {
+      "name": "metrics",
+      "image": "metrics-exporter:latest",
+      "portMappings": [{"containerPort": 9090}],
+      "dockerLabels": {
+        "traefik.enable": "true",
+        "traefik.http.routers.metrics.rule": "Host(`metrics.example.com`)",
+        "traefik.http.services.metrics.loadbalancer.server.port": "9090"
+      }
+    }
+  ]
+}
+```
+
+## Complete Setup Example
+
+<CodeGroup>
+```yaml Traefik Task Definition
+{
+  "family": "traefik",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "taskRoleArn": "arn:aws:iam::123456789:role/TraefikECSRole",
+  "executionRoleArn": "arn:aws:iam::123456789:role/ECSTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "traefik",
+      "image": "traefik:v3.6",
+      "portMappings": [
+        {"containerPort": 80, "protocol": "tcp"},
+        {"containerPort": 443, "protocol": "tcp"},
+        {"containerPort": 8080, "protocol": "tcp"}
+      ],
+      "command": [
+        "--entrypoints.web.address=:80",
+        "--entrypoints.websecure.address=:443",
+        "--entrypoints.traefik.address=:8080",
+        "--api.dashboard=true",
+        "--providers.ecs=true",
+        "--providers.ecs.region=us-east-1",
+        "--providers.ecs.autodiscoverclusters=true",
+        "--providers.ecs.exposedbydefault=false",
+        "--log.level=INFO"
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/traefik",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "traefik"
+        }
+      }
+    }
+  ]
+}
+```
+
+```json IAM Role Policy
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:ListClusters",
+        "ecs:DescribeClusters",
+        "ecs:ListTasks",
+        "ecs:DescribeTasks",
+        "ecs:DescribeContainerInstances",
+        "ecs:DescribeTaskDefinition",
+        "ec2:DescribeInstances",
+        "ec2:DescribeNetworkInterfaces"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+```bash Service Creation
+# Create Traefik service with ALB
+aws ecs create-service \
+  --cluster production \
+  --service-name traefik \
+  --task-definition traefik:1 \
+  --desired-count 2 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={
+    subnets=[subnet-xxx,subnet-yyy],
+    securityGroups=[sg-zzz],
+    assignPublicIp=ENABLED
+  }" \
+  --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:...,containerName=traefik,containerPort=80"
+```
+</CodeGroup>
+
+## Network Modes
+
+### AWSVPC (Fargate / EC2)
+
+Tasks get their own ENI with private IP:
+
+```json
+{
+  "networkMode": "awsvpc",
+  "containerDefinitions": [{
+    "portMappings": [
+      {"containerPort": 8080}
+    ]
+  }]
+}
+```
+
+Traefik connects to task's private IP.
+
+### Bridge (EC2 only)
+
+Port mapping with dynamic host ports:
+
+```json
+{
+  "networkMode": "bridge",
+  "containerDefinitions": [{
+    "portMappings": [
+      {
+        "containerPort": 8080,
+        "hostPort": 0  // Dynamic port
+      }
+    ]
+  }]
+}
+```
+
+Traefik discovers the host:port mapping.
+
+### Host (EC2 only)
+
+Direct host networking:
+
+```json
+{
+  "networkMode": "host",
+  "containerDefinitions": [{
+    "portMappings": [
+      {"containerPort": 8080}
+    ]
+  }]
+}
+```
+
+## Advanced Patterns
+
+### Blue-Green Deployments
+
+```bash
+# Blue environment (current)
+aws ecs update-service --cluster prod --service web --task-definition web:blue --desired-count 3
+
+# Deploy green (new version)
+aws ecs create-service --cluster prod --service web-green --task-definition web:green --desired-count 3
+
+# Test green deployment
+curl -H "Host: green.example.com" https://app.example.com
+
+# Switch traffic (update labels)
+# Scale down blue
+aws ecs update-service --cluster prod --service web --desired-count 0
+```
+
+### Canary Deployments
+
+```json
+// Stable version (90% of tasks)
+{
+  "dockerLabels": {
+    "traefik.http.services.api.loadbalancer.weight": "90"
+  }
+}
+
+// Canary version (10% of tasks)
+{
+  "dockerLabels": {
+    "traefik.http.services.api-canary.loadbalancer.weight": "10"
+  }
+}
+```
+
+### Multi-Region Setup
+
+```yaml
+# us-east-1 Traefik
+providers:
+  ecs:
+    region: "us-east-1"
+    constraints: "Label(`region`, `us-east`)"
+
+# eu-west-1 Traefik
+providers:
+  ecs:
+    region: "eu-west-1"
+    constraints: "Label(`region`, `eu-west`)"
+```
+
+## Troubleshooting
+
+### Tasks Not Discovered
+
+<Steps>
+  <Step title="Check IAM Permissions">
+    ```bash
+    aws ecs list-tasks --cluster my-cluster
+    aws ecs describe-tasks --cluster my-cluster --tasks <task-arn>
+    ```
+  </Step>
+  
+  <Step title="Verify exposedByDefault">
+    If `false`, ensure `traefik.enable=true` label exists.
+  </Step>
+  
+  <Step title="Check Constraints">
+    Ensure task labels match configured constraints.
+  </Step>
+  
+  <Step title="Review Traefik Logs">
+    ```bash
+    aws logs tail /ecs/traefik --follow
+    ```
+  </Step>
+</Steps>
+
+### Network Connectivity Issues
+
+- **AWSVPC**: Verify security groups allow traffic between Traefik and tasks
+- **Bridge**: Check container instance security groups
+- **Fargate**: Ensure tasks are in same VPC/subnets
+
+### Port Detection
+
+Explicitly set port if auto-detection fails:
+
+```json
+{
+  "dockerLabels": {
+    "traefik.http.services.myapp.loadbalancer.server.port": "8080"
+  }
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Task Roles">
+    Prefer IAM task roles over access keys for security.
+  </Step>
+  
+  <Step title="Enable Health Checks">
+    Configure container health checks for reliable routing.
+  </Step>
+  
+  <Step title="Set exposedByDefault=false">
+    Explicitly enable Traefik per service for better control.
+  </Step>
+  
+  <Step title="Use Constraints">
+    Filter by environment, region, or team to organize services.
+  </Step>
+  
+  <Step title="Monitor Refresh Interval">
+    Adjust `refreshSeconds` based on deployment frequency.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="ECS Routing" icon="route" href="/routing/providers/ecs">
+    Detailed ECS label configuration
+  </Card>
+  <Card title="AWS ECS Docs" icon="aws" href="https://docs.aws.amazon.com/ecs/">
+    Official AWS ECS documentation
+  </Card>
+</CardGroup>

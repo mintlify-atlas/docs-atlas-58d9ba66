@@ -1,0 +1,527 @@
+---
+title: Contribution Guidelines
+description: Learn the code standards, PR process, and best practices for contributing to Traefik.
+---
+
+# Contribution Guidelines
+
+This guide covers the standards and best practices for contributing code to Traefik. Following these guidelines helps ensure your contributions can be reviewed and merged quickly.
+
+## Before You Start
+
+<Note>
+**Create an Issue First**: For enhancements or features, always [create an issue](https://github.com/traefik/traefik/issues/new/choose) before starting work. This allows maintainers to provide design feedback and confirm the feature aligns with project goals.
+</Note>
+
+### Check Existing Work
+
+Before starting:
+
+1. Search [existing issues](https://github.com/traefik/traefik/issues) to avoid duplicates
+2. Comment on issues you're interested in working on
+3. Look for the `contributor/wanted` tag for priority features
+4. Check [Good First Issues](https://github.com/traefik/traefik/labels/contributor%2Fgood-first-issue) if you're new
+
+## Development Workflow
+
+### 1. Fork and Clone
+
+Fork the repository and clone it locally:
+
+```bash
+git clone https://github.com/YOUR_USERNAME/traefik.git
+cd traefik
+git remote add upstream https://github.com/traefik/traefik.git
+```
+
+### 2. Create a Branch
+
+Create a feature branch from the latest `master`:
+
+```bash
+git checkout master
+git pull upstream master
+git checkout -b feature/my-contribution
+```
+
+<Tip>
+**Branch Naming**: Use descriptive names like `fix/issue-1234` or `feature/add-retry-middleware`.
+</Tip>
+
+### 3. Make Changes
+
+Write your code following the standards below.
+
+### 4. Commit Changes
+
+Write clear, descriptive commit messages:
+
+<CodeGroup>
+```bash Good Example
+git commit -m "Add retry middleware for HTTP requests
+
+Implements exponential backoff with configurable max attempts.
+Fixes #1234"
+```
+
+```bash Bad Example
+git commit -m "fix stuff"
+```
+</CodeGroup>
+
+#### Commit Message Best Practices
+
+- **Subject line**: 50 characters or less, imperative mood ("Add" not "Added")
+- **Body**: Explain the "why" not the "what"
+- **Reference issues**: Include `Fixes #123` or `Relates to #456`
+- **Sign commits**: Use `git commit -s` if required
+
+**Resources:**
+- [How to Write a Git Commit Message - Chris Beams](https://chris.beams.io/posts/git-commit/)
+- [A Note About Git Commit Messages - Tim Pope](https://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html)
+
+### 5. Push Changes
+
+```bash
+git push origin feature/my-contribution
+```
+
+### 6. Create Pull Request
+
+Open a pull request from your fork to `traefik:master`.
+
+## Code Standards
+
+### Go Style
+
+Traefik follows standard Go conventions with additional linting rules:
+
+#### Formatting
+
+- Use `gofumpt` (stricter than `gofmt`)
+- Run `make fmt` before committing
+- Organize imports with `gci`
+
+```bash
+make fmt
+```
+
+#### Linting
+
+All code must pass golangci-lint:
+
+```bash
+make lint
+```
+
+Key linters enabled:
+- **govet** - Go vet checks
+- **errcheck** - Verify error handling
+- **gofumpt** - Strict formatting
+- **gci** - Import organization
+- **staticcheck** - Advanced static analysis
+- **gosimple** - Simplification suggestions
+- **ineffassign** - Detect ineffectual assignments
+- **unparam** - Unused function parameters
+
+<Note>
+See `.golangci.yml` in the repository root for the complete linter configuration.
+</Note>
+
+#### Code Organization
+
+- **Package names**: Short, lowercase, no underscores
+- **Function names**: Clear and descriptive (prefer `CreateHandler` over `CH`)
+- **Variable names**: Short for small scopes, descriptive for larger scopes
+- **Interfaces**: Name with `-er` suffix when appropriate (`Reader`, `Writer`)
+
+### Comments
+
+<Warning>
+**Comment Everything**: We work internationally and cross-culturally. Comment all changes thoroughly so reviewers understand your intent and strategy.
+</Warning>
+
+#### Required Comments
+
+- **Exported functions/types**: Must have doc comments
+- **Complex logic**: Explain the "why" behind non-obvious code
+- **TODOs**: Use `// TODO: description` (but avoid in production code)
+- **Package comments**: Document package purpose in `doc.go` or main file
+
+Example:
+
+```go
+// CreateRetryMiddleware creates a middleware that retries failed requests
+// using exponential backoff. It returns an error if maxAttempts is less than 1.
+func CreateRetryMiddleware(maxAttempts int) (Middleware, error) {
+    if maxAttempts < 1 {
+        return nil, errors.New("maxAttempts must be at least 1")
+    }
+    
+    // Use exponential backoff to avoid overwhelming failing services
+    backoff := &ExponentialBackoff{
+        base: time.Second,
+        max:  30 * time.Second,
+    }
+    
+    return &RetryMiddleware{
+        attempts: maxAttempts,
+        backoff:  backoff,
+    }, nil
+}
+```
+
+### Error Handling
+
+- Always check errors: `if err != nil`
+- Use standard library `errors` package (not `github.com/pkg/errors`)
+- Wrap errors with context: `fmt.Errorf("failed to load config: %w", err)`
+- Don't ignore errors (linter will catch this)
+
+### Testing
+
+#### Test Coverage
+
+- Write tests for all new functionality
+- Maintain or improve existing coverage
+- Include both positive and negative test cases
+
+#### Test Organization
+
+```go
+func TestCreateRetryMiddleware(t *testing.T) {
+    t.Run("valid configuration", func(t *testing.T) {
+        mw, err := CreateRetryMiddleware(3)
+        require.NoError(t, err)
+        assert.NotNil(t, mw)
+    })
+    
+    t.Run("invalid max attempts", func(t *testing.T) {
+        _, err := CreateRetryMiddleware(0)
+        require.Error(t, err)
+    })
+}
+```
+
+#### Running Tests
+
+<CodeGroup>
+```bash Unit Tests
+make test-unit
+```
+
+```bash Integration Tests
+make test-integration
+```
+
+```bash Specific Test
+TESTFLAGS="-test.run TestMyFeature" make test-integration
+```
+</CodeGroup>
+
+### Dependencies
+
+- Prefer standard library over external dependencies
+- Dependencies in `go.mod` must reference tags (not commits)
+- If tag not possible, add a comment explaining why
+- Run `make validate` to check vendor consistency
+
+## Pull Request Guidelines
+
+### Before Submitting
+
+Run all validation steps locally:
+
+<Steps>
+  <Step title="Generate Code">
+    ```bash
+    make generate
+    make generate-crd
+    ```
+  </Step>
+  
+  <Step title="Validate">
+    ```bash
+    make validate
+    ```
+  </Step>
+  
+  <Step title="Test">
+    ```bash
+    make pull-images
+    make test
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+Your PR will **not be reviewed** until all CI checks are green. Running these locally first saves time.
+</Warning>
+
+### PR Best Practices
+
+#### Size Matters
+
+<Note>
+**Keep PRs Small**: Large PRs take longer to review and are more likely to be rejected. Break large changes into multiple smaller PRs when possible.
+</Note>
+
+- Each PR should solve **one problem**
+- If you can extract separate concerns, do it
+- Multiple small PRs > one large PR
+- Aim for < 400 lines changed when possible
+
+#### PR Template
+
+Use the PR template and fill it out completely:
+
+- **Description**: What does this PR do?
+- **Motivation**: Why is this change needed?
+- **Related issues**: Link to issues (e.g., `Fixes #1234`)
+- **Type of change**: Bug fix, feature, docs, etc.
+- **Testing**: How did you test this?
+
+#### PR Settings
+
+- **Not from organization**: Open PR from your personal fork, not organization repo
+- **Allow edits**: Keep "Allow edits from maintainers" checked
+- **Not a draft**: We don't review drafts (but we answer questions on them)
+- **Semantic line breaks**: Use in documentation (one sentence per line)
+
+### PR Review Process
+
+The review process follows these stages:
+
+<Steps>
+  <Step title="Triage">
+    We verify prerequisites and assign reviewers.
+  </Step>
+  
+  <Step title="Design Review">
+    We check for conflicts with existing codebase (takes longest).
+  </Step>
+  
+  <Step title="Code Review">
+    In-depth code review with testing. We may request changes.
+  </Step>
+  
+  <Step title="Approval">
+    Requires 2 LGTM (Looks Good To Me) from maintainers.
+  </Step>
+  
+  <Step title="Merge">
+    Bot automatically merges when ready (squash-rebase by default).
+  </Step>
+</Steps>
+
+#### Response Time
+
+- Be reasonably responsive during code review
+- Stale PRs (>90 days without feedback) may be closed
+- Re-request review after addressing feedback
+- Comment to bump visibility during triage
+
+### Merge Process
+
+PRs are managed by [Myrmica Lobicornis](https://github.com/traefik/lobicornis) bot:
+
+- Verifies all checks pass
+- Ensures minimum reviews (2 LGTM)
+- Rebases or merges with base branch if needed
+- Performs squash-rebase merge by default
+
+#### Labels
+
+- `status/3-needs-merge` - Triggers merge bot (added by maintainer)
+- `status/4-merge-in-progress` - Bot is merging (automatic)
+- `bot/need-human-merge` - Conflicts or issues require manual intervention
+- `bot/no-merge` - Prevents automatic merge
+- `bot/light-review` - Reduces required LGTMs from 2 to 1 (docs, deps, etc.)
+
+## Common Issues
+
+### Why Was My PR Closed?
+
+PRs may be closed if:
+
+- **Design conflicts**: Changes conflict with codebase architecture
+  - Prevention: Create an issue first and discuss design
+- **Out of scope**: Feature won't be used or doesn't align with goals
+  - Prevention: Get maintainer feedback on an issue first
+- **Stale**: No contributor feedback for >90 days
+  - Prevention: Respond to review comments promptly
+
+### Why Isn't My PR Being Reviewed?
+
+Common reasons:
+
+#### Priority
+
+We prioritize:
+1. PRs with `contributor/wanted` tag
+2. Bug fixes (especially `bug/confirmed`)
+3. Documentation updates
+4. Other PRs
+
+#### Not Following Best Practices
+
+- No issue created before PR
+- PR too large (should be broken up)
+- Insufficient comments
+- Missing or inadequate tests
+- Failing CI checks
+
+#### Release Freeze
+
+During final weeks of milestone, we pause reviews to stabilize for release.
+
+## Code Style Examples
+
+### Good Examples
+
+<CodeGroup>
+```go Error Handling
+// Good: Always check and wrap errors with context
+config, err := LoadConfig(path)
+if err != nil {
+    return fmt.Errorf("failed to load config from %s: %w", path, err)
+}
+```
+
+```go Comments
+// Good: Explain why, not what
+// We use a buffered channel to avoid blocking the goroutine
+// when the receiver is slow
+chan results := make(chan Result, 100)
+```
+
+```go Testing
+// Good: Table-driven tests with descriptive names
+func TestParseConfig(t *testing.T) {
+    tests := []struct {
+        name    string
+        input   string
+        want    Config
+        wantErr bool
+    }{
+        {
+            name:  "valid config",
+            input: `{"host": "localhost"}`,
+            want:  Config{Host: "localhost"},
+        },
+        {
+            name:    "invalid json",
+            input:   `{invalid`,
+            wantErr: true,
+        },
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            got, err := ParseConfig(tt.input)
+            if tt.wantErr {
+                require.Error(t, err)
+                return
+            }
+            require.NoError(t, err)
+            assert.Equal(t, tt.want, got)
+        })
+    }
+}
+```
+</CodeGroup>
+
+### Bad Examples
+
+<CodeGroup>
+```go Error Handling
+// Bad: Ignoring errors
+config, _ := LoadConfig(path)
+
+// Bad: Not wrapping errors
+if err != nil {
+    return err
+}
+```
+
+```go Comments
+// Bad: Stating the obvious
+// Set host to localhost
+host := "localhost"
+
+// Bad: No comment on complex logic
+result := ((a << 4) | (b & 0x0F)) ^ c
+```
+
+```go Variable Names
+// Bad: Non-descriptive names
+func Proc(d []byte) error {
+    var x int
+    for _, v := range d {
+        x += int(v)
+    }
+    return nil
+}
+```
+</CodeGroup>
+
+## It's OK to Push Back
+
+Reviewers make mistakes too! If you have good reasons for doing something differently:
+
+- Politely explain your reasoning
+- Provide evidence or references
+- Be open to discussion
+- Stay respectful
+
+You might be overruled, but you might also prevail. We're reasonable people.
+
+## Common Sense and Courtesy
+
+- Be respectful and professional
+- Be open-minded - consider other perspectives
+- Keep communication public (don't DM maintainers)
+- Stay away from defensive comments
+- Express yourself clearly (many aren't native English speakers)
+- Remember: we all want to improve the project
+
+## Documentation
+
+When changing functionality:
+
+- Update relevant documentation
+- Use semantic line breaks (one sentence per line)
+- Include code examples
+- Update configuration references if needed
+
+See the [Documentation Guide](https://doc.traefik.io/traefik/contributing/documentation/) for building docs locally.
+
+## Security
+
+Never commit:
+- Credentials or API keys
+- `.env` files with secrets
+- Private keys or certificates
+
+For security issues, follow the [Security Policy](https://doc.traefik.io/traefik/contributing/submitting-security-issues/).
+
+## Getting Help
+
+Stuck? Need help?
+
+- **Testing**: Ask in your PR comments - we're happy to suggest test cases
+- **Design**: Create an issue to discuss before coding
+- **Review**: Re-request review or comment to bump visibility
+- **Community**: Ask on [community.traefik.io](https://community.traefik.io/)
+
+## Next Steps
+
+Now you're ready to contribute!
+
+1. Find an issue to work on
+2. Create your branch and make changes
+3. Run validation and tests locally
+4. Submit your PR
+5. Respond to review feedback
+
+Thank you for making Traefik better!

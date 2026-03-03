@@ -1,0 +1,268 @@
+---
+title: 'Providers Overview'
+description: 'Learn how Traefik discovers routing configuration through infrastructure providers including Docker, Kubernetes, AWS ECS, and more.'
+---
+
+# Providers Overview
+
+Traefik's Many Friends - Configuration Discovery Made Simple
+
+Providers are the infrastructure components that Traefik queries to discover routing configuration. Whether you're using container orchestrators, cloud platforms, or configuration files, Traefik automatically detects changes and dynamically updates routes.
+
+## What are Providers?
+
+Configuration discovery in Traefik is achieved through **Providers**. These are infrastructure components like:
+
+- **Orchestrators**: Docker, Kubernetes, Nomad, AWS ECS
+- **Service Catalogs**: Consul Catalog
+- **Key-Value Stores**: etcd, Consul, Redis, ZooKeeper
+- **File-based**: YAML/TOML configuration files
+- **API-based**: HTTP endpoints
+
+Traefik queries provider APIs to find routing information, and when it detects changes, it dynamically updates routes in real-time.
+
+## Provider Categories
+
+Providers can be grouped into four main categories:
+
+<Steps>
+  <Step title="Label-based Providers">
+    Each deployed container has labels attached to it that define routing rules.
+    
+    **Examples**: Docker, AWS ECS, Consul Catalog, Nomad
+    
+    ```yaml
+    labels:
+      - "traefik.http.routers.my-app.rule=Host(`example.com`)"
+    ```
+  </Step>
+
+  <Step title="Annotation-based Providers">
+    Separate objects with annotations define container characteristics.
+    
+    **Examples**: Kubernetes (Ingress, CRD, Gateway API)
+    
+    ```yaml
+    metadata:
+      annotations:
+        traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    ```
+  </Step>
+
+  <Step title="Key-Value Providers">
+    Configuration is stored in distributed key-value stores.
+    
+    **Examples**: etcd, Consul, Redis, ZooKeeper
+    
+    ```bash
+    etcdctl put /traefik/http/routers/my-router/rule "Host(`example.com`)"
+    ```
+  </Step>
+
+  <Step title="File-based Providers">
+    Configuration defined in static YAML or TOML files.
+    
+    **Examples**: File provider, HTTP provider
+    
+    ```yaml
+    http:
+      routers:
+        my-router:
+          rule: "Host(`example.com`)"
+    ```
+  </Step>
+</Steps>
+
+## Supported Providers
+
+| Provider | Type | Configuration Method | Provider Name |
+|----------|------|---------------------|---------------|
+| [Docker](/providers/docker) | Orchestrator | Labels | `docker` |
+| [Kubernetes CRD](/providers/kubernetes-crd) | Orchestrator | Custom Resources | `kubernetescrd` |
+| [Kubernetes Gateway API](/providers/kubernetes-gateway) | Orchestrator | Gateway API | `kubernetesgateway` |
+| [File](/providers/file) | Manual | YAML/TOML | `file` |
+| [Consul Catalog](/providers/consul) | Orchestrator | Tags | `consulcatalog` |
+| [etcd](/providers/etcd) | KV Store | Key-Value | `etcd` |
+| [AWS ECS](/providers/ecs) | Cloud | Labels | `ecs` |
+| [Nomad](/providers/nomad) | Orchestrator | Tags | `nomad` |
+
+## Provider Namespaces
+
+When you declare objects like middleware, services, or TLS options, they reside in their provider's namespace.
+
+### Cross-Provider References
+
+To reference objects from another provider, use the `@` separator:
+
+```text
+<resource-name>@<provider-name>
+```
+
+<Tabs>
+  <Tab title="Docker">
+    ```yaml
+    labels:
+      # Reference middleware from file provider
+      - "traefik.http.routers.my-app.middlewares=auth@file"
+    ```
+  </Tab>
+  
+  <Tab title="Kubernetes IngressRoute">
+    ```yaml
+    apiVersion: traefik.io/v1alpha1
+    kind: IngressRoute
+    metadata:
+      name: my-route
+    spec:
+      routes:
+        - middlewares:
+            - name: add-prefix@file
+    ```
+  </Tab>
+  
+  <Tab title="File">
+    ```yaml
+    http:
+      middlewares:
+        add-prefix:
+          addPrefix:
+            prefix: "/api"
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  When using Kubernetes, don't confuse the **provider namespace** with the **Kubernetes namespace**. Cross-provider references don't use Kubernetes namespaces.
+</Note>
+
+## Configuration Reload
+
+### Throttling Provider Updates
+
+Control how frequently Traefik processes configuration changes:
+
+```yaml
+providers:
+  providersThrottleDuration: 2s
+```
+
+<CodeGroup>
+```yaml YAML
+providers:
+  providersThrottleDuration: 10s
+```
+
+```toml TOML
+[providers]
+  providersThrottleDuration = "10s"
+```
+
+```bash CLI
+--providers.providersThrottleDuration=10s
+```
+</CodeGroup>
+
+This prevents configuration reload storms when providers update rapidly.
+
+## Service Discovery Scope
+
+By default, Traefik creates routes for all detected containers. You can restrict discovery using:
+
+### exposedByDefault
+
+Control whether services are exposed automatically:
+
+```yaml
+providers:
+  docker:
+    exposedByDefault: false
+```
+
+When `false`, only services with `traefik.enable=true` are exposed.
+
+**Supported by**: Docker, ECS, Consul Catalog, Nomad
+
+### Constraints
+
+Filter services based on labels or tags:
+
+```yaml
+providers:
+  docker:
+    constraints: "Label(`environment`, `production`)"
+```
+
+<Warning>
+  Constraints apply to ALL resources from that provider. Use carefully to avoid accidentally hiding services.
+</Warning>
+
+**Supported by**: Docker, ECS, Consul Catalog, Nomad, Kubernetes CRD, Kubernetes Ingress, Kubernetes Gateway
+
+## Quick Start Examples
+
+<CodeGroup>
+```yaml Docker
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: true
+```
+
+```yaml Kubernetes
+providers:
+  kubernetesCRD: {}
+  kubernetesIngress: {}
+```
+
+```yaml File
+providers:
+  file:
+    directory: "/etc/traefik/dynamic"
+    watch: true
+```
+
+```yaml Multiple
+providers:
+  docker: {}
+  kubernetesCRD: {}
+  file:
+    directory: "/etc/traefik/dynamic"
+```
+</CodeGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Multiple Providers">
+    Combine providers for flexibility. Use File provider for shared middleware and certificates, plus orchestrator providers for services.
+  </Step>
+  
+  <Step title="Implement Constraints">
+    Use constraints to separate environments (staging/production) or control which services Traefik manages.
+  </Step>
+  
+  <Step title="Set Throttle Duration">
+    Configure `providersThrottleDuration` in dynamic environments to prevent excessive reloads.
+  </Step>
+  
+  <Step title="Organize Namespaces">
+    Use provider namespaces strategically to organize and reference cross-provider resources.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Provider" icon="docker" href="/providers/docker">
+    Configure Traefik with Docker containers using labels
+  </Card>
+  <Card title="Kubernetes" icon="dharmachakra" href="/providers/kubernetes">
+    Deploy Traefik in Kubernetes with CRDs or Gateway API
+  </Card>
+  <Card title="File Provider" icon="file" href="/providers/file">
+    Use static YAML/TOML files for configuration
+  </Card>
+  <Card title="AWS ECS" icon="aws" href="/providers/ecs">
+    Integrate Traefik with Amazon ECS services
+  </Card>
+</CardGroup>

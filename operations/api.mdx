@@ -1,0 +1,555 @@
+---
+title: "API"
+description: "REST API endpoints for querying Traefik runtime configuration, routers, services, and middlewares"
+---
+
+# REST API
+
+Traefik exposes a comprehensive REST API for querying runtime configuration, monitoring routers, services, middlewares, and more.
+
+## Overview
+
+The Traefik API provides access to:
+
+- Runtime configuration of routers, services, and middlewares
+- Entry points and their configurations
+- TCP and UDP router information
+- Health and status information
+- Debug and profiling endpoints (when enabled)
+
+<Note>
+  The API is disabled by default and must be explicitly enabled in the static configuration.
+</Note>
+
+## Security Considerations
+
+<Steps>
+  <Step title="Never Expose Publicly">
+    The API exposes sensitive configuration data including:
+    - Service endpoints and backends
+    - Middleware configurations
+    - TLS certificate information
+    - Provider details
+    
+    Always restrict API access to internal networks only.
+  </Step>
+
+  <Step title="Use Authentication">
+    Always secure the API with authentication middleware:
+    - Basic Authentication
+    - Digest Authentication
+    - Forward Authentication
+    - IP Allow Lists
+  </Step>
+
+  <Step title="Disable in Production">
+    Consider disabling the API entirely in production, or exposing it only on a separate internal entry point.
+  </Step>
+</Steps>
+
+## Configuration
+
+### Enable the API
+
+Enable the API in your static configuration:
+
+<CodeGroup>
+```yaml File (YAML)
+api:
+  dashboard: true
+  debug: false
+```
+
+```toml File (TOML)
+[api]
+  dashboard = true
+  debug = false
+```
+
+```bash CLI
+--api=true
+--api.dashboard=true
+```
+</CodeGroup>
+
+This creates a special service `api@internal` that can be referenced in routers.
+
+### Secure Mode (Recommended)
+
+Create a router with authentication to access the API:
+
+<CodeGroup>
+```yaml File (YAML)
+http:
+  routers:
+    api:
+      rule: "Host(`traefik.example.com`)"
+      service: api@internal
+      middlewares:
+        - auth
+      
+  middlewares:
+    auth:
+      basicAuth:
+        users:
+          - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+```
+
+```toml File (TOML)
+[http.routers.api]
+  rule = "Host(`traefik.example.com`)"
+  service = "api@internal"
+  middlewares = ["auth"]
+
+[http.middlewares.auth.basicAuth]
+  users = [
+    "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+  ]
+```
+
+```yaml Docker Labels
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.api.rule=Host(`traefik.example.com`)"
+  - "traefik.http.routers.api.service=api@internal"
+  - "traefik.http.routers.api.middlewares=auth"
+  - "traefik.http.middlewares.auth.basicauth.users=admin:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/"
+```
+</CodeGroup>
+
+<Note>
+  The router rule must match the `/api` path prefix. Using a Host rule is recommended as it matches all paths on that host.
+</Note>
+
+### Insecure Mode
+
+For development and testing only:
+
+```bash
+traefik --api.insecure=true
+```
+
+This exposes the API on the `traefik` entry point (default port 8080) at `http://<traefik-ip>:8080/api/`
+
+<Note>
+  Insecure mode is not recommended for production and does not support authentication middleware.
+</Note>
+
+## Configuration Options
+
+<ParamField path="dashboard" type="boolean" default="true">
+  Enable the web dashboard UI.
+  
+  ```yaml
+  api:
+    dashboard: true
+  ```
+  
+  See [Dashboard Documentation](/operations/dashboard) for details.
+</ParamField>
+
+<ParamField path="debug" type="boolean" default="false">
+  Enable additional debug endpoints under `/debug/` for profiling and diagnostics.
+  
+  ```yaml
+  api:
+    debug: true
+  ```
+  
+  Exposes Go profiling endpoints like `/debug/pprof/`.
+</ParamField>
+
+<ParamField path="insecure" type="boolean" default="false">
+  Enable API in insecure mode on the `traefik` entry point.
+  
+  ```yaml
+  api:
+    insecure: true  # Development only!
+  ```
+</ParamField>
+
+<ParamField path="basePath" type="string" default="/">
+  Customize the base path for API and dashboard endpoints.
+  
+  ```yaml
+  api:
+    basePath: "/traefik"
+  ```
+  
+  This serves the API at `/traefik/api` and dashboard at `/traefik/dashboard`.
+</ParamField>
+
+## API Endpoints
+
+All endpoints accept `GET` requests and return JSON responses.
+
+### HTTP Routers
+
+<ParamField path="GET /api/http/routers" type="endpoint">
+  List all HTTP routers with their configuration and status.
+  
+  **Response**:
+  ```json
+  [
+    {
+      "name": "my-router@docker",
+      "provider": "docker",
+      "status": "enabled",
+      "using": ["web"],
+      "rule": "Host(`example.com`)",
+      "priority": 0,
+      "service": "my-service@docker",
+      "middlewares": ["compress@docker"]
+    }
+  ]
+  ```
+</ParamField>
+
+<ParamField path="GET /api/http/routers/{name}" type="endpoint">
+  Get details of a specific HTTP router.
+  
+  **Example**: `/api/http/routers/my-router@docker`
+  
+  **Response**:
+  ```json
+  {
+    "name": "my-router@docker",
+    "provider": "docker",
+    "status": "enabled",
+    "using": ["web"],
+    "rule": "Host(`example.com`)",
+    "priority": 0,
+    "service": "my-service@docker",
+    "middlewares": ["compress@docker"],
+    "tls": {
+      "certResolver": "letsencrypt"
+    }
+  }
+  ```
+</ParamField>
+
+### HTTP Services
+
+<ParamField path="GET /api/http/services" type="endpoint">
+  List all HTTP services.
+  
+  **Response**:
+  ```json
+  [
+    {
+      "name": "my-service@docker",
+      "provider": "docker",
+      "type": "loadbalancer",
+      "status": "enabled",
+      "serverStatus": {
+        "http://10.0.0.1:80": "UP",
+        "http://10.0.0.2:80": "UP"
+      },
+      "loadBalancer": {
+        "servers": [
+          {"url": "http://10.0.0.1:80"},
+          {"url": "http://10.0.0.2:80"}
+        ],
+        "passHostHeader": true
+      }
+    }
+  ]
+  ```
+</ParamField>
+
+<ParamField path="GET /api/http/services/{name}" type="endpoint">
+  Get details of a specific HTTP service.
+  
+  **Example**: `/api/http/services/my-service@docker`
+</ParamField>
+
+### HTTP Middlewares
+
+<ParamField path="GET /api/http/middlewares" type="endpoint">
+  List all HTTP middlewares.
+  
+  **Response**:
+  ```json
+  [
+    {
+      "name": "compress@docker",
+      "provider": "docker",
+      "type": "compress",
+      "status": "enabled",
+      "usedBy": ["my-router@docker"]
+    }
+  ]
+  ```
+</ParamField>
+
+<ParamField path="GET /api/http/middlewares/{name}" type="endpoint">
+  Get details of a specific HTTP middleware.
+</ParamField>
+
+### TCP Routers
+
+<ParamField path="GET /api/tcp/routers" type="endpoint">
+  List all TCP routers.
+  
+  **Response**:
+  ```json
+  [
+    {
+      "name": "tcp-router@file",
+      "provider": "file",
+      "status": "enabled",
+      "using": ["mysql"],
+      "rule": "HostSNI(`*.example.com`)",
+      "service": "mysql-service@file"
+    }
+  ]
+  ```
+</ParamField>
+
+<ParamField path="GET /api/tcp/routers/{name}" type="endpoint">
+  Get details of a specific TCP router.
+</ParamField>
+
+### TCP Services
+
+<ParamField path="GET /api/tcp/services" type="endpoint">
+  List all TCP services.
+</ParamField>
+
+<ParamField path="GET /api/tcp/services/{name}" type="endpoint">
+  Get details of a specific TCP service.
+</ParamField>
+
+### TCP Middlewares
+
+<ParamField path="GET /api/tcp/middlewares" type="endpoint">
+  List all TCP middlewares.
+</ParamField>
+
+<ParamField path="GET /api/tcp/middlewares/{name}" type="endpoint">
+  Get details of a specific TCP middleware.
+</ParamField>
+
+### UDP Routers
+
+<ParamField path="GET /api/udp/routers" type="endpoint">
+  List all UDP routers.
+</ParamField>
+
+<ParamField path="GET /api/udp/routers/{name}" type="endpoint">
+  Get details of a specific UDP router.
+</ParamField>
+
+### UDP Services
+
+<ParamField path="GET /api/udp/services" type="endpoint">
+  List all UDP services.
+</ParamField>
+
+<ParamField path="GET /api/udp/services/{name}" type="endpoint">
+  Get details of a specific UDP service.
+</ParamField>
+
+### Entry Points
+
+<ParamField path="GET /api/entrypoints" type="endpoint">
+  List all entry points.
+  
+  **Response**:
+  ```json
+  [
+    {
+      "name": "web",
+      "address": ":80"
+    },
+    {
+      "name": "websecure",
+      "address": ":443"
+    }
+  ]
+  ```
+</ParamField>
+
+<ParamField path="GET /api/entrypoints/{name}" type="endpoint">
+  Get details of a specific entry point.
+</ParamField>
+
+### Overview
+
+<ParamField path="GET /api/overview" type="endpoint">
+  Get statistical overview of routers, services, middlewares, features, and providers.
+  
+  **Response**:
+  ```json
+  {
+    "http": {
+      "routers": {"total": 10, "warnings": 0, "errors": 0},
+      "services": {"total": 8, "warnings": 0, "errors": 0},
+      "middlewares": {"total": 5, "warnings": 0, "errors": 0}
+    },
+    "tcp": {
+      "routers": {"total": 2, "warnings": 0, "errors": 0},
+      "services": {"total": 2, "warnings": 0, "errors": 0},
+      "middlewares": {"total": 0, "warnings": 0, "errors": 0}
+    },
+    "udp": {
+      "routers": {"total": 0, "warnings": 0, "errors": 0},
+      "services": {"total": 0, "warnings": 0, "errors": 0}
+    },
+    "features": {
+      "tracing": "Jaeger",
+      "metrics": "Prometheus",
+      "accessLog": true
+    },
+    "providers": ["docker", "file"]
+  }
+  ```
+</ParamField>
+
+### Raw Data
+
+<ParamField path="GET /api/rawdata" type="endpoint">
+  Get complete runtime configuration including all routers, services, middlewares, and their relationships.
+  
+  **Response**:
+  ```json
+  {
+    "routers": {...},
+    "middlewares": {...},
+    "services": {...},
+    "tcpRouters": {...},
+    "tcpMiddlewares": {...},
+    "tcpServices": {...},
+    "udpRouters": {...},
+    "udpServices": {...}
+  }
+  ```
+</ParamField>
+
+### Support Dump
+
+<ParamField path="GET /api/support-dump" type="endpoint">
+  Generate a support dump archive containing anonymized static and runtime configuration.
+  
+  **Response**: Archive file download
+  
+  Useful for troubleshooting and support requests.
+</ParamField>
+
+### Version
+
+<ParamField path="GET /api/version" type="endpoint">
+  Get Traefik version information.
+  
+  **Response**:
+  ```json
+  {
+    "version": "v3.2.0",
+    "codename": "Tatooine",
+    "buildDate": "2024-09-24T14:30:00Z"
+  }
+  ```
+</ParamField>
+
+## Pagination
+
+List endpoints support pagination using query parameters:
+
+<ParamField path="page" type="integer" default="1">
+  Page number to retrieve.
+</ParamField>
+
+<ParamField path="per_page" type="integer" default="100">
+  Number of results per page.
+</ParamField>
+
+**Example**:
+
+```bash
+curl "https://traefik.example.com/api/http/routers?page=2&per_page=20"
+```
+
+**Response Headers**:
+
+- `X-Next-Page`: Page number of the next page (if available)
+
+## Debug Endpoints
+
+When `api.debug=true` is enabled, additional debugging endpoints are available:
+
+<ParamField path="GET /debug/vars" type="endpoint">
+  Expvar data showing internal variables.
+  
+  See [Go expvar documentation](https://golang.org/pkg/expvar/).
+</ParamField>
+
+<ParamField path="GET /debug/pprof/" type="endpoint">
+  pprof index page for profiling.
+  
+  See [Go pprof documentation](https://golang.org/pkg/net/http/pprof/).
+</ParamField>
+
+<ParamField path="GET /debug/pprof/cmdline" type="endpoint">
+  Command line arguments.
+</ParamField>
+
+<ParamField path="GET /debug/pprof/profile" type="endpoint">
+  CPU profile (add `?seconds=30` for duration).
+</ParamField>
+
+<ParamField path="GET /debug/pprof/symbol" type="endpoint">
+  Symbol lookup.
+</ParamField>
+
+<ParamField path="GET /debug/pprof/trace" type="endpoint">
+  Execution trace.
+</ParamField>
+
+<Note>
+  Debug endpoints should never be exposed publicly as they can expose sensitive information and impact performance.
+</Note>
+
+## Usage Examples
+
+### Query All HTTP Routers
+
+```bash
+curl -u admin:password https://traefik.example.com/api/http/routers | jq
+```
+
+### Get Specific Service Details
+
+```bash
+curl -u admin:password https://traefik.example.com/api/http/services/my-service@docker | jq
+```
+
+### Check System Overview
+
+```bash
+curl -u admin:password https://traefik.example.com/api/overview | jq '.features'
+```
+
+### Monitor Router Status
+
+```bash
+watch -n 5 'curl -s -u admin:password https://traefik.example.com/api/http/routers | jq ".[].status"'
+```
+
+### Export Configuration
+
+```bash
+curl -u admin:password https://traefik.example.com/api/rawdata > traefik-config.json
+```
+
+## Source Code References
+
+- API Handler: `pkg/api/handler.go:84-126`
+- HTTP Routers: `pkg/api/handler_http.go:72-127`
+- Overview Endpoint: `pkg/api/handler_overview.go:40-67`
+- Dashboard Integration: `pkg/api/dashboard/dashboard.go:66-127`
+
+## Additional Resources
+
+- [Dashboard Documentation](/operations/dashboard)
+- [CLI Commands](/operations/cli)
+- [Health Checks](/operations/ping)

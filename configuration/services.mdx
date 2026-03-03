@@ -1,0 +1,529 @@
+---
+title: 'Services Configuration'
+description: 'Configure backend services including load balancing, health checks, and server definitions.'
+---
+
+# Services
+
+Defining Backend Services and Load Balancing
+
+Services define how to reach the actual backend servers that handle requests. They are part of the **dynamic configuration**.
+
+## HTTP Services
+
+### Load Balancer Service
+
+The most common service type that distributes requests across multiple backend servers:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        my-service:
+          loadBalancer:
+            servers:
+              - url: "http://192.168.1.10:8080"
+              - url: "http://192.168.1.11:8080"
+              - url: "http://192.168.1.12:8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.services.my-service.loadBalancer]
+      [[http.services.my-service.loadBalancer.servers]]
+        url = "http://192.168.1.10:8080"
+      [[http.services.my-service.loadBalancer.servers]]
+        url = "http://192.168.1.11:8080"
+      [[http.services.my-service.loadBalancer.servers]]
+        url = "http://192.168.1.12:8080"
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="url" type="string" required>
+  Backend server URL (must include scheme: `http://` or `https://`)
+</ParamField>
+
+## Load Balancing Strategies
+
+### Weighted Round Robin (WRR)
+
+Default strategy that distributes requests based on server weights:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        weighted-service:
+          loadBalancer:
+            strategy: "wrr"
+            servers:
+              - url: "http://192.168.1.10:8080"
+                weight: 3
+              - url: "http://192.168.1.11:8080"
+                weight: 1
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.services.weighted-service.loadBalancer]
+      strategy = "wrr"
+      [[http.services.weighted-service.loadBalancer.servers]]
+        url = "http://192.168.1.10:8080"
+        weight = 3
+      [[http.services.weighted-service.loadBalancer.servers]]
+        url = "http://192.168.1.11:8080"
+        weight = 1
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+With these weights, the first server receives 75% of traffic (3/4) and the second receives 25% (1/4).
+</Note>
+
+### Power of Two Choices (P2C)
+
+Selects the least loaded server from two random choices:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        dynamic-service:
+          loadBalancer:
+            strategy: "p2c"
+            servers:
+              - url: "http://192.168.1.10:8080"
+              - url: "http://192.168.1.11:8080"
+              - url: "http://192.168.1.12:8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.services.dynamic-service.loadBalancer]
+      strategy = "p2c"
+      [[http.services.dynamic-service.loadBalancer.servers]]
+        url = "http://192.168.1.10:8080"
+      [[http.services.dynamic-service.loadBalancer.servers]]
+        url = "http://192.168.1.11:8080"
+      [[http.services.dynamic-service.loadBalancer.servers]]
+        url = "http://192.168.1.12:8080"
+    ```
+  </Tab>
+</Tabs>
+
+### Highest Random Weight (HRW)
+
+Provides consistent hashing for sticky sessions:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        consistent-service:
+          loadBalancer:
+            strategy: "hrw"
+            servers:
+              - url: "http://192.168.1.10:8080"
+              - url: "http://192.168.1.11:8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.services.consistent-service.loadBalancer]
+      strategy = "hrw"
+      [[http.services.consistent-service.loadBalancer.servers]]
+        url = "http://192.168.1.10:8080"
+      [[http.services.consistent-service.loadBalancer.servers]]
+        url = "http://192.168.1.11:8080"
+    ```
+  </Tab>
+</Tabs>
+
+## Sticky Sessions
+
+Maintain session affinity using cookies:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        sticky-service:
+          loadBalancer:
+            sticky:
+              cookie:
+                name: "server_id"
+                secure: true
+                httpOnly: true
+                sameSite: "lax"
+            servers:
+              - url: "http://192.168.1.10:8080"
+              - url: "http://192.168.1.11:8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.services.sticky-service.loadBalancer]
+      [[http.services.sticky-service.loadBalancer.servers]]
+        url = "http://192.168.1.10:8080"
+      [[http.services.sticky-service.loadBalancer.servers]]
+        url = "http://192.168.1.11:8080"
+      [http.services.sticky-service.loadBalancer.sticky.cookie]
+        name = "server_id"
+        secure = true
+        httpOnly = true
+        sameSite = "lax"
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="name" type="string" default="auto-generated">
+  Cookie name for session affinity
+</ParamField>
+
+<ParamField path="secure" type="boolean" default="false">
+  Only send cookie over HTTPS
+</ParamField>
+
+<ParamField path="httpOnly" type="boolean" default="false">
+  Prevent JavaScript access to cookie
+</ParamField>
+
+<ParamField path="sameSite" type="string" default="">
+  SameSite policy: `none`, `lax`, or `strict`
+</ParamField>
+
+## Health Checks
+
+Automatically detect and remove unhealthy servers:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        monitored-service:
+          loadBalancer:
+            healthCheck:
+              path: "/health"
+              interval: "10s"
+              timeout: "3s"
+              scheme: "http"
+              port: 8080
+              hostname: "localhost"
+              followRedirects: true
+              headers:
+                X-Health-Check: "true"
+            servers:
+              - url: "http://192.168.1.10:8080"
+              - url: "http://192.168.1.11:8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.services.monitored-service.loadBalancer]
+      [[http.services.monitored-service.loadBalancer.servers]]
+        url = "http://192.168.1.10:8080"
+      [[http.services.monitored-service.loadBalancer.servers]]
+        url = "http://192.168.1.11:8080"
+      [http.services.monitored-service.loadBalancer.healthCheck]
+        path = "/health"
+        interval = "10s"
+        timeout = "3s"
+        scheme = "http"
+        port = 8080
+        hostname = "localhost"
+        followRedirects = true
+        [http.services.monitored-service.loadBalancer.healthCheck.headers]
+          X-Health-Check = "true"
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="path" type="string" required>
+  URL path for health check endpoint
+</ParamField>
+
+<ParamField path="interval" type="duration" default="30s">
+  Time between health checks
+</ParamField>
+
+<ParamField path="timeout" type="duration" default="5s">
+  Maximum time to wait for health check response
+</ParamField>
+
+<ParamField path="scheme" type="string">
+  Override server scheme for health checks
+</ParamField>
+
+<ParamField path="port" type="int">
+  Override server port for health checks
+</ParamField>
+
+## Advanced Service Types
+
+### Weighted Round Robin Service
+
+Load balance between multiple services:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        canary-deployment:
+          weighted:
+            services:
+              - name: stable-version
+                weight: 90
+              - name: canary-version
+                weight: 10
+        
+        stable-version:
+          loadBalancer:
+            servers:
+              - url: "http://192.168.1.10:8080"
+        
+        canary-version:
+          loadBalancer:
+            servers:
+              - url: "http://192.168.1.20:8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.services.canary-deployment.weighted]
+      [[http.services.canary-deployment.weighted.services]]
+        name = "stable-version"
+        weight = 90
+      [[http.services.canary-deployment.weighted.services]]
+        name = "canary-version"
+        weight = 10
+    
+    [http.services.stable-version.loadBalancer]
+      [[http.services.stable-version.loadBalancer.servers]]
+        url = "http://192.168.1.10:8080"
+    
+    [http.services.canary-version.loadBalancer]
+      [[http.services.canary-version.loadBalancer.servers]]
+        url = "http://192.168.1.20:8080"
+    ```
+  </Tab>
+</Tabs>
+
+### Mirroring Service
+
+Mirror traffic to a second service for testing:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        mirrored:
+          mirroring:
+            service: production
+            mirrorBody: true
+            maxBodySize: 1048576  # 1MB
+            mirrors:
+              - name: testing
+                percent: 10
+        
+        production:
+          loadBalancer:
+            servers:
+              - url: "http://192.168.1.10:8080"
+        
+        testing:
+          loadBalancer:
+            servers:
+              - url: "http://192.168.1.20:8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.services.mirrored.mirroring]
+      service = "production"
+      mirrorBody = true
+      maxBodySize = 1048576
+      [[http.services.mirrored.mirroring.mirrors]]
+        name = "testing"
+        percent = 10
+    
+    [http.services.production.loadBalancer]
+      [[http.services.production.loadBalancer.servers]]
+        url = "http://192.168.1.10:8080"
+    
+    [http.services.testing.loadBalancer]
+      [[http.services.testing.loadBalancer.servers]]
+        url = "http://192.168.1.20:8080"
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+Mirroring only copies requests to the mirror service. Responses from mirrors are discarded.
+</Warning>
+
+### Failover Service
+
+Automatically switch to fallback when main service fails:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        resilient:
+          failover:
+            service: primary
+            fallback: backup
+        
+        primary:
+          loadBalancer:
+            healthCheck:
+              path: "/health"
+              interval: "10s"
+            servers:
+              - url: "http://192.168.1.10:8080"
+        
+        backup:
+          loadBalancer:
+            servers:
+              - url: "http://192.168.1.20:8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.services.resilient.failover]
+      service = "primary"
+      fallback = "backup"
+    
+    [http.services.primary.loadBalancer]
+      [http.services.primary.loadBalancer.healthCheck]
+        path = "/health"
+        interval = "10s"
+      [[http.services.primary.loadBalancer.servers]]
+        url = "http://192.168.1.10:8080"
+    
+    [http.services.backup.loadBalancer]
+      [[http.services.backup.loadBalancer.servers]]
+        url = "http://192.168.1.20:8080"
+    ```
+  </Tab>
+</Tabs>
+
+## TCP Services
+
+Configure TCP backend services:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    tcp:
+      services:
+        database:
+          loadBalancer:
+            servers:
+              - address: "192.168.1.10:5432"
+              - address: "192.168.1.11:5432"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [tcp.services.database.loadBalancer]
+      [[tcp.services.database.loadBalancer.servers]]
+        address = "192.168.1.10:5432"
+      [[tcp.services.database.loadBalancer.servers]]
+        address = "192.168.1.11:5432"
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+TCP services use `address` (IP:Port) instead of `url` like HTTP services.
+</Note>
+
+## Complete Example
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      services:
+        # Production service with health checks
+        production-api:
+          loadBalancer:
+            strategy: "p2c"
+            passHostHeader: true
+            sticky:
+              cookie:
+                name: "api_server"
+                secure: true
+                httpOnly: true
+            healthCheck:
+              path: "/health"
+              interval: "10s"
+              timeout: "3s"
+              headers:
+                Authorization: "Bearer health-check-token"
+            servers:
+              - url: "http://192.168.1.10:8080"
+                weight: 2
+              - url: "http://192.168.1.11:8080"
+                weight: 2
+              - url: "http://192.168.1.12:8080"
+                weight: 1
+        
+        # Canary deployment
+        canary:
+          weighted:
+            sticky:
+              cookie:
+                name: "version"
+            services:
+              - name: production-api
+                weight: 95
+              - name: beta-api
+                weight: 5
+        
+        beta-api:
+          loadBalancer:
+            healthCheck:
+              path: "/health"
+              interval: "10s"
+            servers:
+              - url: "http://192.168.1.20:8080"
+        
+        # Mirrored for testing
+        mirrored-api:
+          mirroring:
+            service: production-api
+            maxBodySize: 2097152  # 2MB
+            mirrors:
+              - name: staging-api
+                percent: 10
+        
+        staging-api:
+          loadBalancer:
+            servers:
+              - url: "http://192.168.1.30:8080"
+    ```
+  </Tab>
+</Tabs>

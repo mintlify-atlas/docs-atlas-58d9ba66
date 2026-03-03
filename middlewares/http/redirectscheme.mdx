@@ -1,0 +1,195 @@
+---
+title: "RedirectScheme Middleware"
+description: "Redirect clients to different schemes or ports with the RedirectScheme middleware in Traefik Proxy."
+---
+
+# RedirectScheme Middleware
+
+Redirecting the Client to a Different Scheme/Port
+
+The RedirectScheme middleware redirects requests when the request scheme is different from the configured scheme.
+
+<Warning>
+**When Behind Another Reverse-Proxy**
+
+When there is at least one other reverse-proxy between the client and Traefik, the other reverse-proxy (the last hop) needs to be a trusted one. Otherwise, Traefik would clean up the `X-Forwarded` headers, and the RedirectScheme middleware would not function as intended.
+</Warning>
+
+## Configuration Examples
+
+### Redirect to HTTPS
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme=https"
+  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.permanent=true"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-redirectscheme
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-redirectscheme:
+      redirectScheme:
+        scheme: https
+        permanent: true
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-redirectscheme.redirectScheme]
+    scheme = "https"
+    permanent = true
+```
+
+</CodeGroup>
+
+### Redirect to HTTPS with Custom Port
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme=https"
+  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.port=443"
+  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.permanent=true"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-redirectscheme
+spec:
+  redirectScheme:
+    scheme: https
+    port: "443"
+    permanent: true
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-redirectscheme:
+      redirectScheme:
+        scheme: https
+        port: "443"
+        permanent: true
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-redirectscheme.redirectScheme]
+    scheme = "https"
+    port = 443
+    permanent = true
+```
+
+</CodeGroup>
+
+## Configuration Options
+
+<ParamField path="scheme" type="string" required>
+  The scheme of the new URL (e.g., `https`, `http`).
+</ParamField>
+
+<ParamField path="port" type="string">
+  The port of the new URL.
+  
+  <Note>Port in this configuration is a string, not a numeric value.</Note>
+</ParamField>
+
+<ParamField path="permanent" type="boolean" default="false">
+  Apply a permanent redirection (HTTP 301 instead of HTTP 302).
+</ParamField>
+
+## Usage Examples
+
+### Force HTTPS
+
+This is the most common use case - forcing all HTTP traffic to HTTPS:
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  routers:
+    web-router:
+      rule: "Host(`example.com`)"
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-to-https
+      service: my-service
+    
+    web-secure-router:
+      rule: "Host(`example.com`)"
+      entryPoints:
+        - websecure
+      service: my-service
+      tls: {}
+
+  middlewares:
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+```
+
+```toml File (TOML)
+[http.routers]
+  [http.routers.web-router]
+    rule = "Host(`example.com`)"
+    entryPoints = ["web"]
+    middlewares = ["redirect-to-https"]
+    service = "my-service"
+  
+  [http.routers.web-secure-router]
+    rule = "Host(`example.com`)"
+    entryPoints = ["websecure"]
+    service = "my-service"
+    [http.routers.web-secure-router.tls]
+
+[http.middlewares]
+  [http.middlewares.redirect-to-https.redirectScheme]
+    scheme = "https"
+    permanent = true
+```
+
+</CodeGroup>
+
+### Redirect with Port Change
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  middlewares:
+    redirect-https-8443:
+      redirectScheme:
+        scheme: https
+        port: "8443"
+        permanent: true
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.redirect-https-8443.redirectScheme]
+    scheme = "https"
+    port = "8443"
+    permanent = true
+```
+
+</CodeGroup>

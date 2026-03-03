@@ -1,0 +1,106 @@
+---
+title: "Middlewares Overview"
+description: "Learn how middlewares in Traefik Proxy modify requests and responses before they reach your services."
+---
+
+# Middlewares
+
+Tweaking the Request
+
+Attached to routers, pieces of middleware are a means of tweaking requests before they are sent to your service (or before the answer from the services are sent to the clients).
+
+There are several available middleware in Traefik. Some can modify the request, the headers, some are in charge of redirections, some add authentication, and so on.
+
+Middlewares that use the same protocol can be combined into chains to fit every scenario.
+
+<Warning>
+**Provider Namespace**
+
+Be aware of the concept of Providers Namespace. It also applies to Middlewares.
+</Warning>
+
+## Configuration Example
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+# As a Docker Label
+whoami:
+  # A container that exposes an API to show its IP address
+  image: traefik/whoami
+  labels:
+    # Create a middleware named `foo-add-prefix`
+    - "traefik.http.middlewares.foo-add-prefix.addprefix.prefix=/foo"
+    # Apply the middleware named `foo-add-prefix` to the router named `router1`
+    - "traefik.http.routers.router1.middlewares=foo-add-prefix@docker"
+```
+
+```yaml Kubernetes
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: stripprefix
+spec:
+  stripPrefix:
+    prefixes:
+      - /stripit
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ingressroute
+spec:
+  routes:
+    - middlewares:
+        - name: stripprefix
+```
+
+```yaml File (YAML)
+http:
+  routers:
+    router1:
+      service: myService
+      middlewares:
+        - "foo-add-prefix"
+      rule: "Host(`example.com`)"
+
+  middlewares:
+    foo-add-prefix:
+      addPrefix:
+        prefix: "/foo"
+
+  services:
+    service1:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:80"
+```
+
+```toml File (TOML)
+[http.routers]
+  [http.routers.router1]
+    service = "myService"
+    middlewares = ["foo-add-prefix"]
+    rule = "Host(`example.com`)"
+
+[http.middlewares]
+  [http.middlewares.foo-add-prefix.addPrefix]
+    prefix = "/foo"
+
+[http.services]
+  [http.services.service1]
+    [http.services.service1.loadBalancer]
+      [[http.services.service1.loadBalancer.servers]]
+        url = "http://127.0.0.1:80"
+```
+
+</CodeGroup>
+
+## Available Middlewares
+
+Traefik provides middlewares for both HTTP and TCP protocols:
+
+- [HTTP Middlewares](/middlewares/http/overview) - Modify HTTP requests and responses
+- [TCP Middlewares](/middlewares/tcp/overview) - Control TCP connections

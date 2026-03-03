@@ -1,0 +1,646 @@
+---
+title: "Installation Guide"
+description: "Install Traefik on Docker, Kubernetes, AWS ECS, or as a standalone binary. Complete installation instructions for all platforms."
+---
+
+# Installation Guide
+
+Traefik can be installed on various platforms and environments. Choose the installation method that best fits your infrastructure.
+
+## Installation Options
+
+<CardGroup cols={2}>
+  <Card title="Docker" icon="docker">
+    Run Traefik as a container with Docker or Docker Compose
+  </Card>
+  <Card title="Kubernetes" icon="kubernetes">
+    Deploy Traefik in your Kubernetes cluster using Helm or manifests
+  </Card>
+  <Card title="Binary" icon="file-binary">
+    Download and run the standalone binary on any system
+  </Card>
+  <Card title="AWS ECS" icon="aws">
+    Deploy Traefik on Amazon ECS for AWS-native deployments
+  </Card>
+</CardGroup>
+
+## Docker
+
+Docker is the quickest way to get started with Traefik. You can run it as a standalone container or use Docker Compose for more complex setups.
+
+### Using Docker Run
+
+Run Traefik with a simple Docker command:
+
+```bash
+docker run -d \
+  -p 80:80 \
+  -p 8080:8080 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  traefik:v3.6 \
+  --api.insecure=true \
+  --providers.docker=true \
+  --providers.docker.exposedbydefault=false \
+  --entryPoints.web.address=:80
+```
+
+<Warning>
+  The `--api.insecure=true` flag is only for testing. Always secure your dashboard in production.
+</Warning>
+
+### Using Docker Compose
+
+For production environments, Docker Compose provides better configuration management:
+
+<Steps>
+  <Step title="Create docker-compose.yml">
+    Create a `docker-compose.yml` file with Traefik configuration:
+
+    ```yaml docker-compose.yml
+    services:
+      traefik:
+        image: traefik:v3.6
+        container_name: traefik
+        restart: unless-stopped
+        security_opt:
+          - no-new-privileges:true
+        ports:
+          - "80:80"
+          - "443:443"
+          - "8080:8080"  # Dashboard (remove in production)
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock:ro
+          - ./traefik.yml:/etc/traefik/traefik.yml:ro
+          - ./dynamic:/etc/traefik/dynamic:ro
+          - ./acme.json:/acme.json
+        networks:
+          - traefik-network
+
+    networks:
+      traefik-network:
+        external: true
+    ```
+  </Step>
+
+  <Step title="Create traefik.yml">
+    Create the static configuration file:
+
+    <CodeGroup>
+    ```yaml traefik.yml
+    # Static Configuration
+    global:
+      checkNewVersion: true
+      sendAnonymousUsage: false
+
+    entryPoints:
+      web:
+        address: ":80"
+        # Redirect to HTTPS
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+
+      websecure:
+        address: ":443"
+
+    providers:
+      docker:
+        endpoint: "unix:///var/run/docker.sock"
+        exposedByDefault: false
+        network: traefik-network
+
+      file:
+        directory: /etc/traefik/dynamic
+        watch: true
+
+    api:
+      dashboard: true
+      # insecure: true  # Only for development
+
+    log:
+      level: INFO
+      # level: DEBUG  # For troubleshooting
+
+    accessLog:
+      filePath: /var/log/traefik/access.log
+    ```
+
+    ```toml traefik.toml
+    # Static Configuration
+    [global]
+      checkNewVersion = true
+      sendAnonymousUsage = false
+
+    [entryPoints]
+      [entryPoints.web]
+        address = ":80"
+        [entryPoints.web.http.redirections]
+          [entryPoints.web.http.redirections.entryPoint]
+            to = "websecure"
+            scheme = "https"
+
+      [entryPoints.websecure]
+        address = ":443"
+
+    [providers.docker]
+      endpoint = "unix:///var/run/docker.sock"
+      exposedByDefault = false
+      network = "traefik-network"
+
+    [providers.file]
+      directory = "/etc/traefik/dynamic"
+      watch = true
+
+    [api]
+      dashboard = true
+
+    [log]
+      level = "INFO"
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Create Docker network">
+    Create an external network for Traefik:
+
+    ```bash
+    docker network create traefik-network
+    ```
+  </Step>
+
+  <Step title="Prepare ACME file">
+    For Let's Encrypt SSL certificates:
+
+    ```bash
+    touch acme.json
+    chmod 600 acme.json
+    ```
+  </Step>
+
+  <Step title="Start Traefik">
+    Launch Traefik:
+
+    ```bash
+    docker compose up -d
+    ```
+
+    Verify it's running:
+
+    ```bash
+    docker compose ps
+    docker compose logs traefik
+    ```
+  </Step>
+</Steps>
+
+### Deploying Services
+
+Now you can deploy services that Traefik will automatically discover:
+
+```yaml
+services:
+  whoami:
+    image: traefik/whoami
+    networks:
+      - traefik-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami.rule=Host(`whoami.example.com`)"
+      - "traefik.http.routers.whoami.entrypoints=websecure"
+      - "traefik.http.routers.whoami.tls=true"
+      - "traefik.http.routers.whoami.tls.certresolver=letsencrypt"
+
+networks:
+  traefik-network:
+    external: true
+```
+
+<Tip>
+  All services that need to be exposed through Traefik should be on the same Docker network.
+</Tip>
+
+## Kubernetes
+
+Deploy Traefik in your Kubernetes cluster using Helm (recommended) or raw manifests.
+
+### Prerequisites
+
+- Kubernetes cluster (v1.16+)
+- kubectl configured
+- Helm 3 (for Helm installation)
+
+### Using Helm (Recommended)
+
+<Steps>
+  <Step title="Add Traefik Helm Repository">
+    ```bash
+    helm repo add traefik https://traefik.github.io/charts
+    helm repo update
+    ```
+  </Step>
+
+  <Step title="Create values.yaml">
+    Customize your installation:
+
+    ```yaml values.yaml
+    # Traefik Helm Chart Values
+    image:
+      name: traefik
+      tag: v3.6
+
+    deployment:
+      replicas: 3
+
+    ingressRoute:
+      dashboard:
+        enabled: true
+        # Secure the dashboard
+        matchRule: Host(`traefik.example.com`)
+        entryPoints:
+          - websecure
+        middlewares:
+          - name: auth
+
+    ports:
+      web:
+        port: 80
+        exposedPort: 80
+        redirectTo:
+          port: websecure
+      websecure:
+        port: 443
+        exposedPort: 443
+        tls:
+          enabled: true
+
+    service:
+      type: LoadBalancer
+
+    providers:
+      kubernetesCRD:
+        enabled: true
+        allowCrossNamespace: true
+      kubernetesIngress:
+        enabled: true
+        publishedService:
+          enabled: true
+
+    persistence:
+      enabled: true
+      size: 1Gi
+
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1024Mi"
+
+    securityContext:
+      capabilities:
+        drop: [ALL]
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65532
+    ```
+  </Step>
+
+  <Step title="Install Traefik">
+    ```bash
+    kubectl create namespace traefik
+
+    helm install traefik traefik/traefik \
+      --namespace traefik \
+      --values values.yaml
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    kubectl get pods -n traefik
+    kubectl get svc -n traefik
+    kubectl logs -n traefik deployment/traefik
+    ```
+  </Step>
+</Steps>
+
+### Using IngressRoute (CRD)
+
+Traefik's native Kubernetes CRD provides more features than standard Ingress:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: myapp-ingress
+  namespace: default
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`myapp.example.com`)
+      kind: Rule
+      services:
+        - name: myapp-service
+          port: 80
+      middlewares:
+        - name: auth-middleware
+  tls:
+    certResolver: letsencrypt
+```
+
+### Using Standard Ingress
+
+Traefik also supports standard Kubernetes Ingress:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  rules:
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: myapp-service
+                port:
+                  number: 80
+```
+
+<Note>
+  IngressRoute (CRD) is recommended as it provides access to all Traefik features, while standard Ingress has limitations.
+</Note>
+
+## Binary Installation
+
+Download and run Traefik as a standalone binary on any Linux, macOS, or Windows system.
+
+<Steps>
+  <Step title="Download Traefik">
+    Download the latest release from GitHub:
+
+    <CodeGroup>
+    ```bash Linux
+    wget https://github.com/traefik/traefik/releases/download/v3.6.0/traefik_v3.6.0_linux_amd64.tar.gz
+    tar -xzf traefik_v3.6.0_linux_amd64.tar.gz
+    chmod +x traefik
+    sudo mv traefik /usr/local/bin/
+    ```
+
+    ```bash macOS
+    wget https://github.com/traefik/traefik/releases/download/v3.6.0/traefik_v3.6.0_darwin_amd64.tar.gz
+    tar -xzf traefik_v3.6.0_darwin_amd64.tar.gz
+    chmod +x traefik
+    sudo mv traefik /usr/local/bin/
+    ```
+
+    ```powershell Windows
+    # Download from GitHub releases
+    # https://github.com/traefik/traefik/releases/download/v3.6.0/traefik_v3.6.0_windows_amd64.zip
+    # Extract and add to PATH
+    ```
+    </CodeGroup>
+
+    Or use the sample configuration:
+
+    ```bash
+    ./traefik --configFile=traefik.toml
+    ```
+  </Step>
+
+  <Step title="Create Configuration">
+    Create a configuration file:
+
+    <CodeGroup>
+    ```yaml traefik.yml
+    entryPoints:
+      web:
+        address: ":80"
+      websecure:
+        address: ":443"
+
+    providers:
+      file:
+        directory: /etc/traefik/dynamic
+        watch: true
+
+    api:
+      dashboard: true
+    ```
+
+    ```toml traefik.toml
+    [entryPoints]
+      [entryPoints.web]
+        address = ":80"
+      [entryPoints.websecure]
+        address = ":443"
+
+    [providers.file]
+      directory = "/etc/traefik/dynamic"
+      watch = true
+
+    [api]
+      dashboard = true
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Run Traefik">
+    Start Traefik with your configuration:
+
+    ```bash
+    traefik --configFile=traefik.yml
+    ```
+
+    Or using command-line flags:
+
+    ```bash
+    traefik \
+      --entryPoints.web.address=:80 \
+      --entryPoints.websecure.address=:443 \
+      --providers.file.directory=/etc/traefik/dynamic \
+      --api.dashboard=true
+    ```
+  </Step>
+
+  <Step title="Create Systemd Service (Optional)">
+    For Linux systems, create a systemd service:
+
+    ```bash
+    sudo nano /etc/systemd/system/traefik.service
+    ```
+
+    ```ini
+    [Unit]
+    Description=Traefik
+    Documentation=https://doc.traefik.io/traefik/
+    After=network-online.target
+    Wants=network-online.target
+
+    [Service]
+    Type=simple
+    User=traefik
+    Group=traefik
+    ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/traefik.yml
+    Restart=on-failure
+    LimitNOFILE=65535
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+
+    Enable and start the service:
+
+    ```bash
+    sudo systemctl daemon-reload
+    sudo systemctl enable traefik
+    sudo systemctl start traefik
+    sudo systemctl status traefik
+    ```
+  </Step>
+</Steps>
+
+## AWS ECS
+
+Deploy Traefik on Amazon ECS to automatically discover and route to ECS services.
+
+### Task Definition
+
+Create an ECS task definition for Traefik:
+
+```json
+{
+  "family": "traefik",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "traefik",
+      "image": "traefik:v3.6",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 80,
+          "protocol": "tcp"
+        },
+        {
+          "containerPort": 443,
+          "protocol": "tcp"
+        }
+      ],
+      "command": [
+        "--providers.ecs=true",
+        "--providers.ecs.autoDiscoverClusters=true",
+        "--providers.ecs.region=us-east-1",
+        "--entryPoints.web.address=:80",
+        "--entryPoints.websecure.address=:443"
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/traefik",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "traefik"
+        }
+      }
+    }
+  ]
+}
+```
+
+### Service Labels
+
+ECS services use labels for Traefik configuration:
+
+```json
+{
+  "dockerLabels": {
+    "traefik.enable": "true",
+    "traefik.http.routers.myapp.rule": "Host(`myapp.example.com`)",
+    "traefik.http.routers.myapp.entrypoints": "websecure",
+    "traefik.http.services.myapp.loadbalancer.server.port": "8080"
+  }
+}
+```
+
+<Warning>
+  Ensure the Traefik task has appropriate IAM permissions to discover ECS services.
+</Warning>
+
+## Configuration Validation
+
+After installation, verify your Traefik configuration:
+
+```bash
+# Test configuration without starting
+traefik --configFile=traefik.yml --dry-run
+
+# Check version
+traefik version
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Enable HTTPS" icon="lock">
+    Configure automatic SSL certificates with Let's Encrypt
+  </Card>
+  <Card title="Configure Middleware" icon="filter">
+    Add authentication, rate limiting, and other middleware
+  </Card>
+  <Card title="Set Up Monitoring" icon="chart-line">
+    Enable metrics and monitoring with Prometheus
+  </Card>
+  <Card title="Production Best Practices" icon="shield">
+    Secure your Traefik deployment for production
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Traefik won't start">
+    - Check configuration syntax: `traefik --configFile=traefik.yml --dry-run`
+    - Verify ports are not in use: `netstat -tulpn | grep :80`
+    - Check logs for errors
+    - Ensure proper file permissions
+  </Accordion>
+
+  <Accordion title="Services not discovered (Docker)">
+    - Verify Docker socket is mounted correctly
+    - Check `exposedByDefault` setting
+    - Ensure containers have correct labels
+    - Confirm containers are on the same network
+  </Accordion>
+
+  <Accordion title="Services not discovered (Kubernetes)">
+    - Verify RBAC permissions are correct
+    - Check that CRDs are installed
+    - Ensure namespace access is configured
+    - Review IngressRoute/Ingress syntax
+  </Accordion>
+
+  <Accordion title="Certificate issues">
+    - Verify acme.json has correct permissions (600)
+    - Check Let's Encrypt rate limits
+    - Ensure domains resolve to Traefik IP
+    - Review certificate resolver configuration
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  Use `--log.level=DEBUG` to get detailed logging information for troubleshooting.
+</Tip>

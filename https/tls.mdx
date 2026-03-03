@@ -1,0 +1,664 @@
+---
+title: 'TLS Configuration'
+description: 'Configure TLS options, certificates, cipher suites, and client authentication in Traefik.'
+---
+
+# TLS Configuration
+
+Traefik provides comprehensive TLS configuration options for securing your services, including custom certificates, TLS versions, cipher suites, and mutual TLS authentication.
+
+## Certificate Definition
+
+### Manual Certificates
+
+Define certificates manually in the dynamic configuration:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  certificates:
+    - certFile: /path/to/domain.cert
+      keyFile: /path/to/domain.key
+    - certFile: /path/to/other-domain.cert
+      keyFile: /path/to/other-domain.key
+```
+
+```toml TOML
+[[tls.certificates]]
+  certFile = "/path/to/domain.cert"
+  keyFile = "/path/to/domain.key"
+
+[[tls.certificates]]
+  certFile = "/path/to/other-domain.cert"
+  keyFile = "/path/to/other-domain.key"
+```
+</CodeGroup>
+
+<Note>
+  Certificates can be defined using the file provider only. In Kubernetes, use Secrets instead.
+</Note>
+
+### Certificate Content vs. File Path
+
+Certificates can be provided as file paths or inline content:
+
+<Tabs>
+  <Tab title="File Path">
+    ```yaml
+    tls:
+      certificates:
+        - certFile: /etc/traefik/certs/domain.crt
+          keyFile: /etc/traefik/certs/domain.key
+    ```
+  </Tab>
+  
+  <Tab title="Inline Content">
+    ```yaml
+    tls:
+      certificates:
+        - certFile: |
+            -----BEGIN CERTIFICATE-----
+            MIIDXTCCAkWgAwIBAgIJAKZ...
+            -----END CERTIFICATE-----
+          keyFile: |
+            -----BEGIN PRIVATE KEY-----
+            MIIEvQIBADANBgkqhkiG9w...
+            -----END PRIVATE KEY-----
+    ```
+  </Tab>
+</Tabs>
+
+### Kubernetes Secrets
+
+In Kubernetes, certificates are provided through Secrets:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-tls-cert
+  namespace: default
+type: kubernetes.io/tls
+data:
+  tls.crt: LS0tLS1CRUdJTi...
+  tls.key: LS0tLS1CRUdJTi...
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: my-ingress
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`example.com`)
+      kind: Rule
+      services:
+        - name: my-service
+          port: 80
+  tls:
+    secretName: my-tls-cert
+```
+
+## Certificate Stores
+
+Certificates are organized in stores. Only the `default` store is available:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /path/to/default.cert
+        keyFile: /path/to/default.key
+```
+
+```toml TOML
+[tls.stores.default]
+  [tls.stores.default.defaultCertificate]
+    certFile = "/path/to/default.cert"
+    keyFile = "/path/to/default.key"
+```
+</CodeGroup>
+
+### Default Certificate
+
+The default certificate is used for connections without SNI or without a matching domain:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /path/to/cert.crt
+        keyFile: /path/to/cert.key
+```
+
+```toml TOML
+[tls.stores.default.defaultCertificate]
+  certFile = "/path/to/cert.crt"
+  keyFile = "/path/to/cert.key"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: default
+spec:
+  defaultCertificate:
+    secretName: default-certificate
+```
+</CodeGroup>
+
+<Note>
+  If no default certificate is configured, Traefik generates a self-signed certificate automatically.
+</Note>
+
+## TLS Options
+
+TLS options control the TLS connection parameters.
+
+### Minimum TLS Version
+
+Set the minimum TLS version to enforce:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+    
+    strict:
+      minVersion: VersionTLS13
+```
+
+```toml TOML
+[tls.options.default]
+  minVersion = "VersionTLS12"
+
+[tls.options.strict]
+  minVersion = "VersionTLS13"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: default
+  namespace: default
+spec:
+  minVersion: VersionTLS12
+```
+</CodeGroup>
+
+**Available versions:**
+- `VersionTLS10` (not recommended)
+- `VersionTLS11` (not recommended)
+- `VersionTLS12` (recommended minimum)
+- `VersionTLS13` (recommended)
+
+<Warning>
+  TLS 1.0 and 1.1 are deprecated and vulnerable. Always use TLS 1.2 or higher in production.
+</Warning>
+
+### Maximum TLS Version
+
+Limit the maximum TLS version (not recommended):
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    legacy:
+      maxVersion: VersionTLS12
+```
+
+```toml TOML
+[tls.options.legacy]
+  maxVersion = "VersionTLS12"
+```
+</CodeGroup>
+
+<Note>
+  Disabling TLS 1.3 is discouraged. Update clients to support TLS 1.3 instead.
+</Note>
+
+### Cipher Suites
+
+Configure allowed cipher suites for TLS 1.2 and below:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+```
+
+```toml TOML
+[tls.options.default]
+  minVersion = "VersionTLS12"
+  cipherSuites = [
+    "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+    "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+    "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+    "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
+  ]
+```
+</CodeGroup>
+
+**Recommended cipher suites:**
+- `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`
+- `TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`
+- `TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
+- `TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
+- `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256`
+- `TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256`
+
+<Note>
+  TLS 1.3 cipher suites are not configurable. All TLS 1.3 cipher suites are considered secure.
+</Note>
+
+### Curve Preferences
+
+Specify elliptic curves for key exchange:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    default:
+      curvePreferences:
+        - CurveP521
+        - CurveP384
+        - CurveP256
+        - X25519
+```
+
+```toml TOML
+[tls.options.default]
+  curvePreferences = ["CurveP521", "CurveP384", "CurveP256", "X25519"]
+```
+</CodeGroup>
+
+**Available curves:**
+- `CurveP256` / `secp256r1`
+- `CurveP384` / `secp384r1`
+- `CurveP521` / `secp521r1`
+- `X25519` / `x25519`
+- `X25519MLKEM768` / `x25519mlkem768` (post-quantum)
+
+### ALPN Protocols
+
+Configure Application-Layer Protocol Negotiation:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    default:
+      alpnProtocols:
+        - h2
+        - http/1.1
+```
+
+```toml TOML
+[tls.options.default]
+  alpnProtocols = ["h2", "http/1.1"]
+```
+</CodeGroup>
+
+Default: `["h2", "http/1.1", "acme-tls/1"]`
+
+### Strict SNI Checking
+
+Reject connections without valid SNI:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    strict:
+      sniStrict: true
+      minVersion: VersionTLS12
+```
+
+```toml TOML
+[tls.options.strict]
+  sniStrict = true
+  minVersion = "VersionTLS12"
+```
+</CodeGroup>
+
+<Note>
+  With `sniStrict: true`, Traefik rejects connections from clients that don't specify a server_name extension or don't match any configured certificates.
+</Note>
+
+## Client Authentication (mTLS)
+
+Enable mutual TLS authentication to verify client certificates:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    mtls:
+      minVersion: VersionTLS12
+      clientAuth:
+        caFiles:
+          - /path/to/client-ca.crt
+        clientAuthType: RequireAndVerifyClientCert
+```
+
+```toml TOML
+[tls.options.mtls]
+  minVersion = "VersionTLS12"
+  [tls.options.mtls.clientAuth]
+    caFiles = ["/path/to/client-ca.crt"]
+    clientAuthType = "RequireAndVerifyClientCert"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: mtls
+  namespace: default
+spec:
+  minVersion: VersionTLS12
+  clientAuth:
+    secretNames:
+      - client-ca-secret
+    clientAuthType: RequireAndVerifyClientCert
+```
+</CodeGroup>
+
+### Client Auth Types
+
+| Type | Description |
+|------|-------------|
+| `NoClientCert` | No client certificate required or verified |
+| `RequestClientCert` | Request certificate but don't require it |
+| `RequireAnyClientCert` | Require certificate but don't verify it |
+| `VerifyClientCertIfGiven` | Verify certificate only if provided |
+| `RequireAndVerifyClientCert` | Require and verify client certificate |
+
+<Steps>
+  <Step title="NoClientCert">
+    No client certificate verification. Default behavior.
+  </Step>
+  
+  <Step title="RequestClientCert">
+    Request a client certificate during handshake but continue without it.
+  </Step>
+  
+  <Step title="RequireAnyClientCert">
+    Client must send a certificate but it's not validated against CA.
+  </Step>
+  
+  <Step title="VerifyClientCertIfGiven">
+    If client sends a certificate, it must be valid. Otherwise, connection proceeds.
+  </Step>
+  
+  <Step title="RequireAndVerifyClientCert">
+    Client must send a valid certificate signed by a trusted CA.
+  </Step>
+</Steps>
+
+## Using TLS Options in Routers
+
+Apply TLS options to routers:
+
+<CodeGroup>
+```yaml YAML
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`)"
+      service: my-service
+      tls:
+        options: mtls@file
+```
+
+```toml TOML
+[http.routers.my-router]
+  rule = "Host(`example.com`)"
+  service = "my-service"
+  [http.routers.my-router.tls]
+    options = "mtls@file"
+```
+
+```yaml Docker
+labels:
+  - "traefik.http.routers.my-router.rule=Host(`example.com`)"
+  - "traefik.http.routers.my-router.tls=true"
+  - "traefik.http.routers.my-router.tls.options=mtls@file"
+```
+</CodeGroup>
+
+<Note>
+  The `default` TLS option is applied automatically if no option is specified. When referencing options from other providers, include the provider namespace (e.g., `myoptions@file`).
+</Note>
+
+## Disable Session Tickets
+
+Force full TLS handshake on every connection:
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    default:
+      disableSessionTickets: true
+```
+
+```toml TOML
+[tls.options.default]
+  disableSessionTickets = true
+```
+</CodeGroup>
+
+<Warning>
+  Disabling session tickets increases CPU usage and connection latency. Only use when required for security compliance.
+</Warning>
+
+## Complete Configuration Examples
+
+### Production TLS Configuration
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    production:
+      minVersion: VersionTLS12
+      maxVersion: VersionTLS13
+      cipherSuites:
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+      curvePreferences:
+        - CurveP521
+        - CurveP384
+      sniStrict: true
+      alpnProtocols:
+        - h2
+        - http/1.1
+  
+  certificates:
+    - certFile: /etc/traefik/certs/example.com.crt
+      keyFile: /etc/traefik/certs/example.com.key
+  
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/certs/default.crt
+        keyFile: /etc/traefik/certs/default.key
+```
+
+```toml TOML
+[tls.options.production]
+  minVersion = "VersionTLS12"
+  maxVersion = "VersionTLS13"
+  cipherSuites = [
+    "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+    "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+  ]
+  curvePreferences = ["CurveP521", "CurveP384"]
+  sniStrict = true
+  alpnProtocols = ["h2", "http/1.1"]
+
+[[tls.certificates]]
+  certFile = "/etc/traefik/certs/example.com.crt"
+  keyFile = "/etc/traefik/certs/example.com.key"
+
+[tls.stores.default.defaultCertificate]
+  certFile = "/etc/traefik/certs/default.crt"
+  keyFile = "/etc/traefik/certs/default.key"
+```
+</CodeGroup>
+
+### mTLS Configuration
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    mtls:
+      minVersion: VersionTLS13
+      clientAuth:
+        caFiles:
+          - /etc/traefik/ca/client-ca.crt
+        clientAuthType: RequireAndVerifyClientCert
+      sniStrict: true
+```
+
+```toml TOML
+[tls.options.mtls]
+  minVersion = "VersionTLS13"
+  sniStrict = true
+  [tls.options.mtls.clientAuth]
+    caFiles = ["/etc/traefik/ca/client-ca.crt"]
+    clientAuthType = "RequireAndVerifyClientCert"
+```
+</CodeGroup>
+
+### Development Configuration
+
+<CodeGroup>
+```yaml YAML
+tls:
+  options:
+    dev:
+      minVersion: VersionTLS12
+      sniStrict: false
+  
+  certificates:
+    - certFile: /etc/traefik/certs/localhost.crt
+      keyFile: /etc/traefik/certs/localhost.key
+```
+
+```toml TOML
+[tls.options.dev]
+  minVersion = "VersionTLS12"
+  sniStrict = false
+
+[[tls.certificates]]
+  certFile = "/etc/traefik/certs/localhost.crt"
+  keyFile = "/etc/traefik/certs/localhost.key"
+```
+</CodeGroup>
+
+## Security Best Practices
+
+<Steps>
+  <Step title="Use TLS 1.2 or Higher">
+    Set `minVersion: VersionTLS12` or `VersionTLS13` to disable vulnerable protocols.
+  </Step>
+  
+  <Step title="Enable Strong Cipher Suites">
+    Only allow modern, secure cipher suites with forward secrecy (ECDHE).
+  </Step>
+  
+  <Step title="Use Modern Curves">
+    Prefer X25519, P-384, and P-521 curves for key exchange.
+  </Step>
+  
+  <Step title="Enable HTTP/2">
+    Include `h2` in `alpnProtocols` for better performance and security.
+  </Step>
+  
+  <Step title="Implement Certificate Rotation">
+    Regularly rotate certificates and maintain proper certificate lifecycle management.
+  </Step>
+  
+  <Step title="Monitor Certificate Expiry">
+    Set up alerts for certificate expiration (30 days before).
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Certificate Not Found
+
+<Tabs>
+  <Tab title="Check File Paths">
+    Verify certificate and key file paths are correct and accessible:
+    ```bash
+    ls -la /path/to/cert.crt
+    ls -la /path/to/cert.key
+    ```
+  </Tab>
+  
+  <Tab title="Verify Permissions">
+    Ensure Traefik has read permissions:
+    ```bash
+    chmod 644 /path/to/cert.crt
+    chmod 600 /path/to/cert.key
+    ```
+  </Tab>
+  
+  <Tab title="Validate Certificate">
+    Check certificate validity:
+    ```bash
+    openssl x509 -in /path/to/cert.crt -text -noout
+    ```
+  </Tab>
+</Tabs>
+
+### TLS Handshake Failures
+
+- **Cipher suite mismatch**: Client doesn't support any configured cipher suites
+- **Protocol version mismatch**: Client TLS version below `minVersion`
+- **SNI issues**: Enable debug logging to see SNI values
+- **Certificate chain issues**: Ensure intermediate certificates are included
+
+### Client Certificate Errors
+
+- **CA not trusted**: Verify CA file path in `caFiles`
+- **Certificate expired**: Check client certificate validity
+- **Wrong clientAuthType**: Adjust based on requirements
+
+<Note>
+  Enable debug logging for detailed TLS connection information:
+  ```bash
+  --log.level=DEBUG
+  ```
+</Note>

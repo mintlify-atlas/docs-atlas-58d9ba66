@@ -1,0 +1,667 @@
+---
+title: 'Consul Catalog Provider'
+description: 'Discover and route services registered in HashiCorp Consul Catalog using tags with Traefik.'
+---
+
+# Consul Catalog Provider
+
+A Story of Tags, Services & Instances
+
+Attach tags to your Consul services and let Traefik automatically discover and route traffic. The Consul Catalog provider watches service registrations in HashiCorp Consul and dynamically updates routing configuration.
+
+## Quick Start
+
+<Steps>
+  <Step title="Enable Consul Catalog Provider">
+    <CodeGroup>
+    ```yaml traefik.yml
+    providers:
+      consulCatalog:
+        endpoint:
+          address: "127.0.0.1:8500"
+        exposedByDefault: true
+        prefix: "traefik"
+    ```
+    
+    ```toml traefik.toml
+    [providers.consulCatalog]
+      [providers.consulCatalog.endpoint]
+        address = "127.0.0.1:8500"
+      exposedByDefault = true
+      prefix = "traefik"
+    ```
+    
+    ```bash CLI
+    --providers.consulcatalog=true
+    --providers.consulcatalog.endpoint.address=127.0.0.1:8500
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Register Service with Tags">
+    ```json
+    {
+      "ID": "web-1",
+      "Name": "web",
+      "Tags": [
+        "traefik.enable=true",
+        "traefik.http.routers.web.rule=Host(`example.com`)",
+        "traefik.http.services.web.loadbalancer.server.port=8080"
+      ],
+      "Address": "192.168.1.10",
+      "Port": 8080
+    }
+    ```
+  </Step>
+  
+  <Step title="Access Your Service">
+    Traefik automatically detects the service and creates routes!
+  </Step>
+</Steps>
+
+## How It Works
+
+The Consul Catalog provider:
+
+1. **Polls Consul** at regular intervals (or uses watch mode)
+2. **Discovers services** with tags matching the configured prefix
+3. **Extracts routing configuration** from service tags
+4. **Creates routes** dynamically
+5. **Updates on changes** when services are added/removed
+
+## Service Registration Examples
+
+### Basic HTTP Service
+
+<CodeGroup>
+```json Consul API
+{
+  "ID": "api-1",
+  "Name": "api",
+  "Tags": [
+    "traefik.enable=true",
+    "traefik.http.routers.api.rule=Host(`api.example.com`)",
+    "traefik.http.routers.api.entrypoints=websecure",
+    "traefik.http.routers.api.tls=true"
+  ],
+  "Address": "192.168.1.20",
+  "Port": 8080,
+  "Check": {
+    "HTTP": "http://192.168.1.20:8080/health",
+    "Interval": "10s"
+  }
+}
+```
+
+```bash Consul CLI
+consul services register -name=api \
+  -address=192.168.1.20 \
+  -port=8080 \
+  -tag="traefik.enable=true" \
+  -tag="traefik.http.routers.api.rule=Host(\`api.example.com\`)" \
+  -tag="traefik.http.routers.api.entrypoints=websecure"
+```
+</CodeGroup>
+
+### Service with Middleware
+
+```json
+{
+  "Name": "secure-app",
+  "Tags": [
+    "traefik.enable=true",
+    "traefik.http.routers.app.rule=Host(`app.example.com`)",
+    "traefik.http.routers.app.middlewares=auth,compress",
+    "traefik.http.middlewares.auth.basicauth.users=admin:$apr1$...",
+    "traefik.http.middlewares.compress.compress=true"
+  ],
+  "Address": "192.168.1.30",
+  "Port": 3000
+}
+```
+
+### Multiple Routers per Service
+
+```json
+{
+  "Name": "multi-domain",
+  "Tags": [
+    "traefik.enable=true",
+    
+    "traefik.http.routers.www.rule=Host(`example.com`) || Host(`www.example.com`)",
+    "traefik.http.routers.www.entrypoints=websecure",
+    
+    "traefik.http.routers.api.rule=Host(`api.example.com`)",
+    "traefik.http.routers.api.entrypoints=websecure",
+    "traefik.http.routers.api.middlewares=api-auth"
+  ],
+  "Address": "192.168.1.40",
+  "Port": 8080
+}
+```
+
+## Provider Configuration
+
+### endpoint
+
+Consul server connection settings.
+
+#### address
+
+_Default: `127.0.0.1:8500`_
+
+```yaml
+providers:
+  consulCatalog:
+    endpoint:
+      address: "consul.example.com:8500"
+```
+
+#### scheme
+
+_Optional, Default: `""`_
+
+URI scheme (http or https):
+
+```yaml
+providers:
+  consulCatalog:
+    endpoint:
+      address: "consul.example.com:8500"
+      scheme: "https"
+```
+
+#### datacenter
+
+_Optional, Default: Agent's datacenter_
+
+```yaml
+providers:
+  consulCatalog:
+    endpoint:
+      datacenter: "dc1"
+```
+
+#### token
+
+_Optional, Default: `""`_
+
+Consul ACL token:
+
+```yaml
+providers:
+  consulCatalog:
+    endpoint:
+      token: "your-acl-token"
+```
+
+<Warning>
+  Don't commit tokens to version control. Use environment variables or secret management.
+</Warning>
+
+#### httpAuth
+
+HTTP Basic Authentication:
+
+```yaml
+providers:
+  consulCatalog:
+    endpoint:
+      httpAuth:
+        username: "admin"
+        password: "secret"
+```
+
+#### tls
+
+TLS configuration for secure connection:
+
+```yaml
+providers:
+  consulCatalog:
+    endpoint:
+      scheme: "https"
+      tls:
+        ca: "/path/to/ca.crt"
+        cert: "/path/to/client.crt"
+        key: "/path/to/client.key"
+        insecureSkipVerify: false
+```
+
+### prefix
+
+_Default: `traefik`_
+
+Tag prefix for Traefik configuration:
+
+```yaml
+providers:
+  consulCatalog:
+    prefix: "lb"  # Use tags like: lb.http.routers.app.rule=...
+```
+
+### refreshInterval
+
+_Default: `15s`_
+
+Polling interval:
+
+```yaml
+providers:
+  consulCatalog:
+    refreshInterval: "30s"
+```
+
+<Note>
+  Ignored when `watch: true` is enabled.
+</Note>
+
+### watch
+
+_Optional, Default: false_
+
+Use Consul watches for real-time updates:
+
+```yaml
+providers:
+  consulCatalog:
+    watch: true
+```
+
+### exposedByDefault
+
+_Default: `true`_
+
+Expose all services by default:
+
+```yaml
+providers:
+  consulCatalog:
+    exposedByDefault: false  # Require traefik.enable=true tag
+```
+
+### defaultRule
+
+_Default: ``Host(`{{ normalize .Name }}`)``_
+
+Default routing rule template:
+
+```yaml
+providers:
+  consulCatalog:
+    defaultRule: "Host(`{{ .Name }}.example.com`)"
+```
+
+### constraints
+
+_Optional, Default: `""`_
+
+Filter services by tags:
+
+<CodeGroup>
+```yaml Single Constraint
+providers:
+  consulCatalog:
+    constraints: "Tag(`production`)"
+```
+
+```yaml Multiple Constraints
+providers:
+  consulCatalog:
+    constraints: "Tag(`production`) && Tag(`web`)"
+```
+
+```yaml Regex
+providers:
+  consulCatalog:
+    constraints: "TagRegex(`env-.*`)"
+```
+</CodeGroup>
+
+### Consistency Mode
+
+Control Consul read consistency:
+
+#### requireConsistent
+
+_Default: `false`_
+
+Force fully consistent reads:
+
+```yaml
+providers:
+  consulCatalog:
+    requireConsistent: true
+```
+
+#### stale
+
+_Default: `false`_
+
+Allow stale reads (faster, scalable):
+
+```yaml
+providers:
+  consulCatalog:
+    stale: true
+```
+
+#### cache
+
+_Default: `false`_
+
+Use local agent caching:
+
+```yaml
+providers:
+  consulCatalog:
+    cache: true
+```
+
+### Consul Connect
+
+#### connectAware
+
+_Default: `false`_
+
+Enable Consul Connect support:
+
+```yaml
+providers:
+  consulCatalog:
+    connectAware: true
+```
+
+#### connectByDefault
+
+_Default: `false`_
+
+Treat all services as Connect-capable:
+
+```yaml
+providers:
+  consulCatalog:
+    connectByDefault: true
+```
+
+### namespaces (Enterprise)
+
+_Optional, Default: `""`_
+
+Watch specific Consul Enterprise namespaces:
+
+```yaml
+providers:
+  consulCatalog:
+    namespaces:
+      - "production"
+      - "staging"
+```
+
+<Note>
+  Requires [Consul Enterprise](https://www.consul.io/docs/enterprise) with namespace support.
+</Note>
+
+### strictChecks
+
+_Default: `["passing", "warning"]`_
+
+Health check statuses allowed to receive traffic:
+
+```yaml
+providers:
+  consulCatalog:
+    strictChecks:
+      - "passing"  # Only healthy services
+```
+
+## Complete Example
+
+<CodeGroup>
+```yaml Traefik Configuration
+# traefik.yml
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  consulCatalog:
+    endpoint:
+      address: "consul.internal:8500"
+      scheme: "https"
+      datacenter: "dc1"
+      token: "${CONSUL_TOKEN}"
+      tls:
+        ca: "/certs/consul-ca.crt"
+    
+    prefix: "traefik"
+    watch: true
+    exposedByDefault: false
+    
+    constraints: "Tag(`production`)"
+    
+    defaultRule: "Host(`{{ .Name }}.prod.example.com`)"
+    
+    strictChecks:
+      - "passing"
+```
+
+```json Consul Service
+{
+  "ID": "web-prod-1",
+  "Name": "web",
+  "Tags": [
+    "production",
+    "traefik.enable=true",
+    "traefik.http.routers.web.rule=Host(`www.example.com`)",
+    "traefik.http.routers.web.entrypoints=websecure",
+    "traefik.http.routers.web.tls.certresolver=letsencrypt",
+    "traefik.http.routers.web.middlewares=compress,security",
+    "traefik.http.middlewares.compress.compress=true",
+    "traefik.http.middlewares.security.headers.sslredirect=true",
+    "traefik.http.services.web.loadbalancer.server.port=8080",
+    "traefik.http.services.web.loadbalancer.healthcheck.path=/health",
+    "traefik.http.services.web.loadbalancer.healthcheck.interval=10s"
+  ],
+  "Address": "10.0.1.10",
+  "Port": 8080,
+  "Meta": {
+    "version": "v1.2.3",
+    "region": "us-east"
+  },
+  "Check": {
+    "HTTP": "http://10.0.1.10:8080/health",
+    "Interval": "10s",
+    "Timeout": "2s"
+  }
+}
+```
+</CodeGroup>
+
+## Advanced Patterns
+
+### Canary Deployments
+
+```json
+// Stable version (90% traffic)
+{
+  "Name": "api",
+  "Tags": [
+    "traefik.enable=true",
+    "traefik.http.services.api.loadbalancer.server.port=8080",
+    "traefik.http.services.api.loadbalancer.weight=90"
+  ],
+  "Address": "10.0.1.20",
+  "Meta": {"version": "v1.0"}
+}
+
+// Canary version (10% traffic)
+{
+  "Name": "api",
+  "Tags": [
+    "traefik.enable=true",
+    "traefik.http.services.api-canary.loadbalancer.server.port=8080",
+    "traefik.http.services.api-canary.loadbalancer.weight=10"
+  ],
+  "Address": "10.0.1.21",
+  "Meta": {"version": "v2.0-beta"}
+}
+```
+
+### Multi-Datacenter Setup
+
+```yaml
+providers:
+  consulCatalog:
+    endpoint:
+      address: "consul.example.com:8500"
+      datacenter: "dc1"
+    constraints: "Tag(`dc1`)"
+```
+
+Register with datacenter tag:
+
+```json
+{
+  "Name": "api",
+  "Tags": ["dc1", "traefik.enable=true"],
+  "Address": "10.1.1.10"
+}
+```
+
+### Service Mesh with Consul Connect
+
+```yaml
+providers:
+  consulCatalog:
+    connectAware: true
+    endpoint:
+      address: "localhost:8500"
+```
+
+Register Connect-enabled service:
+
+```json
+{
+  "Name": "backend",
+  "Port": 8080,
+  "Connect": {
+    "SidecarService": {}
+  },
+  "Tags": [
+    "traefik.enable=true",
+    "traefik.consulcatalog.connect=true"
+  ]
+}
+```
+
+## Tag Syntax
+
+All Traefik labels work as Consul tags, replacing `.` with the prefix:
+
+<Tabs>
+  <Tab title="Docker Labels">
+    ```yaml
+    traefik.http.routers.app.rule=Host(`example.com`)
+    traefik.http.routers.app.middlewares=auth
+    ```
+  </Tab>
+  
+  <Tab title="Consul Tags">
+    ```json
+    [
+      "traefik.http.routers.app.rule=Host(`example.com`)",
+      "traefik.http.routers.app.middlewares=auth"
+    ]
+    ```
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+### Services Not Discovered
+
+<Steps>
+  <Step title="Check Consul Connection">
+    ```bash
+    curl http://127.0.0.1:8500/v1/catalog/services
+    ```
+  </Step>
+  
+  <Step title="Verify Service Tags">
+    ```bash
+    consul catalog services -tags
+    ```
+    
+    Ensure tags start with configured prefix.
+  </Step>
+  
+  <Step title="Check exposedByDefault">
+    If `false`, ensure service has `traefik.enable=true` tag.
+  </Step>
+  
+  <Step title="Review Constraints">
+    Verify service tags match configured constraints.
+  </Step>
+</Steps>
+
+### Health Checks Failing
+
+```yaml
+# Only use healthy services
+providers:
+  consulCatalog:
+    strictChecks:
+      - "passing"
+```
+
+### ACL Errors
+
+Ensure token has proper permissions:
+
+```hcl
+service "" {
+  policy = "read"
+}
+
+node "" {
+  policy = "read"
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Health Checks">
+    Always configure Consul health checks for services.
+  </Step>
+  
+  <Step title="Enable Watch Mode">
+    Use `watch: true` for real-time updates instead of polling.
+  </Step>
+  
+  <Step title="Set Proper Consistency">
+    Use `stale: true` for better performance in large deployments.
+  </Step>
+  
+  <Step title="Tag Consistently">
+    Develop a tagging strategy (environment, version, team, etc.).
+  </Step>
+  
+  <Step title="Secure Communication">
+    Use TLS and ACL tokens for Consul connections.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Consul Catalog Routing" icon="route" href="/routing/providers/consul-catalog">
+    Detailed routing configuration with tags
+  </Card>
+  <Card title="Consul Documentation" icon="book" href="https://www.consul.io/docs">
+    Official HashiCorp Consul documentation
+  </Card>
+</CardGroup>

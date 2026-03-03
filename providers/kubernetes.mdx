@@ -1,0 +1,455 @@
+---
+title: 'Kubernetes Overview'
+description: 'Deploy Traefik in Kubernetes using Ingress, Custom Resource Definitions (CRD), or Gateway API for advanced routing.'
+---
+
+# Kubernetes Overview
+
+The Kubernetes Ingress Controller - Three Ways to Route
+
+Traefik integrates seamlessly with Kubernetes through three different providers, each offering different levels of features and complexity.
+
+## Three Provider Options
+
+<CardGroup cols={3}>
+  <Card title="CRD Provider" icon="dharmachakra" href="/providers/kubernetes-crd">
+    **Most Powerful**
+    
+    Custom Resources for advanced routing, TCP/UDP, middleware, and more.
+    
+    Provider name: `kubernetescrd`
+  </Card>
+  
+  <Card title="Gateway API" icon="gateway" href="/providers/kubernetes-gateway">
+    **Future Standard**
+    
+    Kubernetes SIG standard with role-based configuration and advanced features.
+    
+    Provider name: `kubernetesgateway`
+  </Card>
+  
+  <Card title="Ingress" icon="route" href="/providers/kubernetes-ingress">
+    **Most Compatible**
+    
+    Standard Kubernetes Ingress with annotation-based configuration.
+    
+    Provider name: `kubernetes`
+  </Card>
+</CardGroup>
+
+## Quick Comparison
+
+| Feature | Ingress | CRD | Gateway API |
+|---------|---------|-----|-------------|
+| HTTP Routing | ✅ | ✅ | ✅ |
+| HTTPS/TLS | ✅ | ✅ | ✅ |
+| TCP Routing | ❌ | ✅ | ✅ |
+| UDP Routing | ❌ | ✅ | ❌ |
+| Middleware | Via Annotations | Native CRDs | Limited |
+| Configuration Method | Annotations | Custom Resources | Gateway API Resources |
+| Learning Curve | Low | Medium | Medium |
+| Kubernetes Standard | ✅ | ❌ | ✅ (Future) |
+
+## Which Provider Should I Use?
+
+<Tabs>
+  <Tab title="CRD Provider">
+    **Choose CRD when you need:**
+    
+    ✅ Full Traefik feature set (TCP, UDP, middleware)  
+    ✅ Type-safe Kubernetes resources  
+    ✅ Advanced routing capabilities  
+    ✅ IngressRoute abstraction  
+    
+    ```yaml
+    apiVersion: traefik.io/v1alpha1
+    kind: IngressRoute
+    metadata:
+      name: my-route
+    spec:
+      entryPoints:
+        - websecure
+      routes:
+        - match: Host(`example.com`)
+          kind: Rule
+          services:
+            - name: whoami
+              port: 80
+          middlewares:
+            - name: auth
+    ```
+  </Tab>
+  
+  <Tab title="Gateway API">
+    **Choose Gateway API when you need:**
+    
+    ✅ Kubernetes-native standard (future-proof)  
+    ✅ Role-based configuration (platform vs. app teams)  
+    ✅ Portable configuration across providers  
+    ✅ Modern routing features  
+    
+    ```yaml
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: my-route
+    spec:
+      parentRefs:
+        - name: my-gateway
+      hostnames:
+        - "example.com"
+      rules:
+        - backendRefs:
+            - name: whoami
+              port: 80
+    ```
+  </Tab>
+  
+  <Tab title="Ingress">
+    **Choose Ingress when you need:**
+    
+    ✅ Standard Kubernetes resources only  
+    ✅ Compatibility with other ingress controllers  
+    ✅ Simple HTTP/HTTPS routing  
+    ✅ Minimal learning curve  
+    
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: my-ingress
+      annotations:
+        traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    spec:
+      rules:
+        - host: example.com
+          http:
+            paths:
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: whoami
+                    port:
+                      number: 80
+    ```
+  </Tab>
+</Tabs>
+
+## Installation
+
+### Using Helm (Recommended)
+
+<Steps>
+  <Step title="Add Traefik Helm Repository">
+    ```bash
+    helm repo add traefik https://traefik.github.io/charts
+    helm repo update
+    ```
+  </Step>
+  
+  <Step title="Create values.yaml">
+    ```yaml values.yaml
+    # Enable providers
+    providers:
+      kubernetesCRD:
+        enabled: true
+      kubernetesIngress:
+        enabled: true
+      kubernetesGateway:
+        enabled: true
+    
+    # Create IngressClass
+    ingressClass:
+      enabled: true
+      isDefaultClass: true
+    
+    # Ports configuration
+    ports:
+      web:
+        port: 80
+      websecure:
+        port: 443
+    ```
+  </Step>
+  
+  <Step title="Install Traefik">
+    ```bash
+    helm install traefik traefik/traefik \
+      --namespace traefik \
+      --create-namespace \
+      --values values.yaml
+    ```
+  </Step>
+</Steps>
+
+### Manual Installation
+
+<Steps>
+  <Step title="Apply CRDs and RBAC">
+    ```bash
+    # For CRD Provider
+    kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.6/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
+    kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.6/docs/content/reference/dynamic-configuration/kubernetes-crd-rbac.yml
+    
+    # For Gateway API
+    kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
+    kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.6/docs/content/reference/dynamic-configuration/kubernetes-gateway-rbac.yml
+    ```
+  </Step>
+  
+  <Step title="Deploy Traefik">
+    ```yaml traefik-deployment.yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: traefik
+      namespace: traefik
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: traefik
+      template:
+        metadata:
+          labels:
+            app: traefik
+        spec:
+          serviceAccountName: traefik
+          containers:
+            - name: traefik
+              image: traefik:v3.6
+              args:
+                - --entrypoints.web.address=:80
+                - --entrypoints.websecure.address=:443
+                - --providers.kubernetescrd
+                - --providers.kubernetesingress
+              ports:
+                - name: web
+                  containerPort: 80
+                - name: websecure
+                  containerPort: 443
+    ```
+  </Step>
+</Steps>
+
+## Common Configuration
+
+### Enable Multiple Providers
+
+```yaml
+providers:
+  kubernetesCRD:
+    enabled: true
+    namespaces:
+      - default
+      - production
+  
+  kubernetesIngress:
+    enabled: true
+    
+  kubernetesGateway:
+    enabled: true
+    experimentalChannel: true
+```
+
+### Namespace Filtering
+
+Limit which namespaces Traefik watches:
+
+```yaml
+providers:
+  kubernetesCRD:
+    namespaces:
+      - production
+      - staging
+```
+
+### Label Selector
+
+Filter resources by labels:
+
+```yaml
+providers:
+  kubernetesCRD:
+    labelSelector: "app=traefik"
+```
+
+## Example: Complete Application Deployment
+
+<CodeGroup>
+```yaml CRD
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami
+spec:
+  selector:
+    app: whoami
+  ports:
+    - port: 80
+      targetPort: 80
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whoami
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: whoami
+  template:
+    metadata:
+      labels:
+        app: whoami
+    spec:
+      containers:
+        - name: whoami
+          image: traefik/whoami
+          ports:
+            - containerPort: 80
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: whoami
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`whoami.example.com`)
+      kind: Rule
+      services:
+        - name: whoami
+          port: 80
+  tls:
+    certResolver: letsencrypt
+```
+
+```yaml Gateway API
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: traefik-gateway
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+    - name: https
+      protocol: HTTPS
+      port: 443
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: whoami
+spec:
+  parentRefs:
+    - name: traefik-gateway
+  hostnames:
+    - "whoami.example.com"
+  rules:
+    - backendRefs:
+        - name: whoami
+          port: 80
+```
+
+```yaml Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whoami
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: whoami.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - whoami.example.com
+      secretName: whoami-tls
+```
+</CodeGroup>
+
+## Migration Paths
+
+### From Ingress to CRD
+
+<Steps>
+  <Step title="Enable CRD Provider">
+    Keep Ingress provider enabled during migration.
+  </Step>
+  
+  <Step title="Convert Resources">
+    Gradually convert Ingress resources to IngressRoute.
+  </Step>
+  
+  <Step title="Test and Verify">
+    Ensure all routes work correctly.
+  </Step>
+  
+  <Step title="Disable Ingress Provider">
+    Once migration is complete, disable if desired.
+  </Step>
+</Steps>
+
+### From CRD to Gateway API
+
+Similar process - enable both providers during migration.
+
+## Provider-Specific Documentation
+
+<CardGroup cols={3}>
+  <Card title="CRD Provider" icon="code" href="/providers/kubernetes-crd">
+    IngressRoute, Middleware, and other custom resources
+  </Card>
+  <Card title="Gateway API" icon="gateway" href="/providers/kubernetes-gateway">
+    Gateway, HTTPRoute, and Gateway API configuration
+  </Card>
+  <Card title="Ingress" icon="network-wired" href="/providers/kubernetes-ingress">
+    Standard Kubernetes Ingress with Traefik annotations
+  </Card>
+</CardGroup>
+
+## Common Issues
+
+### CRDs Not Found
+
+```bash
+# Ensure CRDs are installed
+kubectl get crd | grep traefik
+```
+
+### RBAC Permissions
+
+```bash
+# Verify service account has correct permissions
+kubectl get clusterrole traefik -o yaml
+```
+
+### Provider Not Watching Namespace
+
+```yaml
+# Add namespace to watch list
+providers:
+  kubernetesCRD:
+    namespaces:
+      - your-namespace
+```

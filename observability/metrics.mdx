@@ -1,0 +1,610 @@
+---
+title: "Metrics"
+description: "Export Traefik metrics to Prometheus, Datadog, StatsD, InfluxDB, and OpenTelemetry for performance monitoring and analysis."
+---
+
+# Metrics
+
+Traefik provides comprehensive metrics for monitoring performance, traffic patterns, and system health. Metrics are available in multiple formats to integrate with your existing monitoring infrastructure.
+
+## Supported Backends
+
+Traefik supports these metrics backends:
+
+- **Prometheus** - Pull-based scraping with histogram support
+- **Datadog** - Push metrics to Datadog Agent via StatsD or UDS
+- **StatsD** - Standard StatsD protocol
+- **InfluxDB 2.x** - Time-series database with tags
+- **OpenTelemetry** - OTLP protocol for metrics
+
+## Quick Start
+
+Enable Prometheus metrics:
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  prometheus: {}
+```
+
+```toml TOML
+[metrics]
+  [metrics.prometheus]
+```
+
+```bash CLI
+--metrics.prometheus=true
+```
+</CodeGroup>
+
+Access metrics at `http://localhost:8080/metrics` (on the Traefik entrypoint).
+
+## Common Configuration
+
+### Add Internals
+
+<ParamField path="addInternals" type="boolean" default="false">
+  Enable metrics for internal resources like `ping@internal`.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  addInternals: true
+  prometheus: {}
+```
+
+```toml TOML
+[metrics]
+  addInternals = true
+  [metrics.prometheus]
+```
+
+```bash CLI
+--metrics.addinternals=true
+--metrics.prometheus=true
+```
+</CodeGroup>
+
+## Prometheus
+
+Prometheus is a pull-based monitoring system that scrapes metrics from HTTP endpoints.
+
+### Basic Configuration
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  prometheus:
+    buckets:
+      - 0.1
+      - 0.3
+      - 1.2
+      - 5.0
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+```
+
+```toml TOML
+[metrics.prometheus]
+  buckets = [0.1, 0.3, 1.2, 5.0]
+  addEntryPointsLabels = true
+  addRoutersLabels = true
+  addServicesLabels = true
+```
+
+```bash CLI
+--metrics.prometheus.buckets=0.1,0.3,1.2,5.0
+--metrics.prometheus.addEntryPointsLabels=true
+--metrics.prometheus.addRoutersLabels=true
+--metrics.prometheus.addServicesLabels=true
+```
+</CodeGroup>
+
+### Configuration Options
+
+<ParamField path="buckets" type="array" default="[0.1, 0.3, 1.2, 5.0]">
+  Histogram buckets for latency metrics (in seconds).
+</ParamField>
+
+<ParamField path="addEntryPointsLabels" type="boolean" default="true">
+  Enable metrics on entrypoints.
+</ParamField>
+
+<ParamField path="addRoutersLabels" type="boolean" default="false">
+  Enable metrics on routers (high cardinality - use with caution).
+</ParamField>
+
+<ParamField path="addServicesLabels" type="boolean" default="true">
+  Enable metrics on services.
+</ParamField>
+
+### Custom EntryPoint
+
+Expose metrics on a dedicated entrypoint:
+
+<CodeGroup>
+```yaml YAML
+entryPoints:
+  web:
+    address: ':80'
+  metrics:
+    address: ':8082'
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+```
+
+```toml TOML
+[entryPoints.web]
+  address = ":80"
+
+[entryPoints.metrics]
+  address = ":8082"
+
+[metrics.prometheus]
+  entryPoint = "metrics"
+```
+
+```bash CLI
+--entryPoints.web.address=:80
+--entryPoints.metrics.address=:8082
+--metrics.prometheus.entryPoint=metrics
+```
+</CodeGroup>
+
+### Manual Routing
+
+<ParamField path="manualRouting" type="boolean" default="false">
+  Disable the default internal router to create custom routing for `prometheus@internal` service.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  prometheus:
+    manualRouting: true
+```
+
+```toml TOML
+[metrics.prometheus]
+  manualRouting = true
+```
+
+```bash CLI
+--metrics.prometheus.manualrouting=true
+```
+</CodeGroup>
+
+### Header Labels
+
+Add custom labels from request headers:
+
+<ParamField path="headerLabels" type="object" default="{}">
+  Map of label names to request header names.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  prometheus:
+    headerLabels:
+      useragent: User-Agent
+      country: X-Country-Code
+```
+
+```toml TOML
+[metrics.prometheus.headerLabels]
+  useragent = "User-Agent"
+  country = "X-Country-Code"
+```
+
+```bash CLI
+--metrics.prometheus.headerlabels.useragent=User-Agent
+--metrics.prometheus.headerlabels.country=X-Country-Code
+```
+</CodeGroup>
+
+<Note>
+The `Host` header is promoted to `Request.Host` in Go and is not available in the header map. Use `X-Forwarded-Host` instead.
+</Note>
+
+### Prometheus Scrape Configuration
+
+```yaml
+scrape_configs:
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['traefik:8080']
+```
+
+## Datadog
+
+Send metrics to Datadog Agent via StatsD protocol or Unix Domain Socket.
+
+### Basic Configuration
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  datadog:
+    address: 127.0.0.1:8125
+    pushInterval: 10s
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    prefix: traefik
+```
+
+```toml TOML
+[metrics.datadog]
+  address = "127.0.0.1:8125"
+  pushInterval = "10s"
+  addEntryPointsLabels = true
+  addServicesLabels = true
+  prefix = "traefik"
+```
+
+```bash CLI
+--metrics.datadog.address=127.0.0.1:8125
+--metrics.datadog.pushInterval=10s
+--metrics.datadog.addEntryPointsLabels=true
+--metrics.datadog.addServicesLabels=true
+--metrics.datadog.prefix=traefik
+```
+</CodeGroup>
+
+### Configuration Options
+
+<ParamField path="address" type="string" default="127.0.0.1:8125" required>
+  Address of the Datadog Agent. Supports UDP and Unix Domain Sockets.
+</ParamField>
+
+Supported address formats:
+- `127.0.0.1:8125` - UDP socket
+- `unix:///path/to/datadog.socket` - Unix socket (auto-detect type)
+- `unixgram:///path/to/datadog.socket` - SOCK_DGRAM socket
+- `unixstream:///path/to/datadog.socket` - SOCK_STREAM socket
+
+<ParamField path="pushInterval" type="duration" default="10s">
+  Interval between metric pushes to Datadog Agent.
+</ParamField>
+
+<ParamField path="prefix" type="string" default="traefik">
+  Prefix for all metrics.
+</ParamField>
+
+### Unix Domain Socket Example
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  datadog:
+    address: unix:///var/run/datadog/dsd.socket
+```
+
+```toml TOML
+[metrics.datadog]
+  address = "unix:///var/run/datadog/dsd.socket"
+```
+
+```bash CLI
+--metrics.datadog.address=unix:///var/run/datadog/dsd.socket
+```
+</CodeGroup>
+
+## StatsD
+
+Send metrics using the StatsD protocol.
+
+### Basic Configuration
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  statsD:
+    address: localhost:8125
+    pushInterval: 10s
+    prefix: traefik
+    addEntryPointsLabels: true
+    addServicesLabels: true
+```
+
+```toml TOML
+[metrics.statsD]
+  address = "localhost:8125"
+  pushInterval = "10s"
+  prefix = "traefik"
+  addEntryPointsLabels = true
+  addServicesLabels = true
+```
+
+```bash CLI
+--metrics.statsd.address=localhost:8125
+--metrics.statsd.pushInterval=10s
+--metrics.statsd.prefix=traefik
+--metrics.statsd.addEntryPointsLabels=true
+--metrics.statsd.addServicesLabels=true
+```
+</CodeGroup>
+
+### Configuration Options
+
+<ParamField path="address" type="string" default="localhost:8125" required>
+  Address of the StatsD server.
+</ParamField>
+
+<ParamField path="pushInterval" type="duration" default="10s">
+  Interval between metric pushes.
+</ParamField>
+
+<ParamField path="prefix" type="string" default="traefik">
+  Prefix for all metrics.
+</ParamField>
+
+## InfluxDB 2.x
+
+Send metrics to InfluxDB 2.x time-series database.
+
+### Basic Configuration
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  influxDB2:
+    address: http://localhost:8086
+    token: mytoken
+    org: myorg
+    bucket: traefik
+    pushInterval: 10s
+    additionalLabels:
+      environment: production
+      datacenter: us-east-1
+```
+
+```toml TOML
+[metrics.influxDB2]
+  address = "http://localhost:8086"
+  token = "mytoken"
+  org = "myorg"
+  bucket = "traefik"
+  pushInterval = "10s"
+  
+  [metrics.influxDB2.additionalLabels]
+    environment = "production"
+    datacenter = "us-east-1"
+```
+
+```bash CLI
+--metrics.influxdb2.address=http://localhost:8086
+--metrics.influxdb2.token=mytoken
+--metrics.influxdb2.org=myorg
+--metrics.influxdb2.bucket=traefik
+--metrics.influxdb2.pushInterval=10s
+--metrics.influxdb2.additionallabels.environment=production
+```
+</CodeGroup>
+
+### Configuration Options
+
+<ParamField path="address" type="string" default="http://localhost:8086" required>
+  Address of the InfluxDB 2.x instance.
+</ParamField>
+
+<ParamField path="token" type="string" required>
+  Authentication token. Can be a token value or file path.
+</ParamField>
+
+<ParamField path="org" type="string" required>
+  Organization name where metrics are stored.
+</ParamField>
+
+<ParamField path="bucket" type="string" required>
+  Bucket name where metrics are stored.
+</ParamField>
+
+<ParamField path="pushInterval" type="duration" default="10s">
+  Interval between metric pushes.
+</ParamField>
+
+<ParamField path="additionalLabels" type="object" default="{}">
+  Additional InfluxDB tags on all metrics.
+</ParamField>
+
+## OpenTelemetry
+
+Export metrics using the OpenTelemetry Protocol (OTLP).
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  otlp:
+    http:
+      endpoint: https://otel-collector:4318/v1/metrics
+    grpc:
+      endpoint: otel-collector:4317
+```
+
+```toml TOML
+[metrics.otlp.http]
+  endpoint = "https://otel-collector:4318/v1/metrics"
+
+[metrics.otlp.grpc]
+  endpoint = "otel-collector:4317"
+```
+
+```bash CLI
+--metrics.otlp.http.endpoint=https://otel-collector:4318/v1/metrics
+--metrics.otlp.grpc.endpoint=otel-collector:4317
+```
+</CodeGroup>
+
+See the [metrics overview documentation](https://doc.traefik.io/traefik/observability/metrics/overview/) for OpenTelemetry semantic conventions.
+
+## Available Metrics
+
+### Global Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `traefik_config_reloads_total` | Counter | - | Total configuration reloads |
+| `traefik_config_last_reload_success` | Gauge | - | Timestamp of last successful reload |
+| `traefik_open_connections` | Gauge | `entrypoint`, `protocol` | Current open connections |
+| `traefik_tls_certs_not_after` | Gauge | - | TLS certificate expiration timestamp |
+
+### EntryPoint Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `traefik_entrypoint_requests_total` | Counter | `code`, `method`, `protocol`, `entrypoint` | Total HTTP requests |
+| `traefik_entrypoint_requests_tls_total` | Counter | `tls_version`, `tls_cipher`, `entrypoint` | Total HTTPS requests |
+| `traefik_entrypoint_request_duration_seconds` | Histogram | `code`, `method`, `protocol`, `entrypoint` | Request duration |
+| `traefik_entrypoint_requests_bytes_total` | Counter | `code`, `method`, `protocol`, `entrypoint` | Total request bytes |
+| `traefik_entrypoint_responses_bytes_total` | Counter | `code`, `method`, `protocol`, `entrypoint` | Total response bytes |
+
+### Router Metrics
+
+<Note>
+**High Cardinality Warning**
+
+Router metrics can create high cardinality in your metrics system. Enable only when necessary.
+</Note>
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `traefik_router_requests_total` | Counter | `code`, `method`, `protocol`, `router`, `service` | Total requests per router |
+| `traefik_router_requests_tls_total` | Counter | `tls_version`, `tls_cipher`, `router`, `service` | Total HTTPS requests per router |
+| `traefik_router_request_duration_seconds` | Histogram | `code`, `method`, `protocol`, `router`, `service` | Request duration per router |
+| `traefik_router_requests_bytes_total` | Counter | `code`, `method`, `protocol`, `router`, `service` | Request bytes per router |
+| `traefik_router_responses_bytes_total` | Counter | `code`, `method`, `protocol`, `router`, `service` | Response bytes per router |
+
+### Service Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `traefik_service_requests_total` | Counter | `code`, `method`, `protocol`, `service` | Total requests per service |
+| `traefik_service_requests_tls_total` | Counter | `tls_version`, `tls_cipher`, `service` | Total HTTPS requests per service |
+| `traefik_service_request_duration_seconds` | Histogram | `code`, `method`, `protocol`, `service` | Request duration per service |
+| `traefik_service_retries_total` | Counter | `service` | Total request retries |
+| `traefik_service_server_up` | Gauge | `service`, `url` | Server health status (0=down, 1=up) |
+| `traefik_service_requests_bytes_total` | Counter | `code`, `method`, `protocol`, `service` | Request bytes per service |
+| `traefik_service_responses_bytes_total` | Counter | `code`, `method`, `protocol`, `service` | Response bytes per service |
+
+### Metric Labels
+
+| Label | Description | Example |
+|-------|-------------|--------|
+| `code` | HTTP status code | `200`, `404`, `500` |
+| `entrypoint` | EntryPoint name | `web`, `websecure` |
+| `method` | HTTP method | `GET`, `POST` |
+| `protocol` | Protocol | `http`, `https` |
+| `router` | Router name | `my-router@docker` |
+| `service` | Service name | `my-service@docker` |
+| `tls_version` | TLS version | `1.2`, `1.3` |
+| `tls_cipher` | TLS cipher suite | `TLS_AES_128_GCM_SHA256` |
+| `url` | Service backend URL | `http://backend:8080` |
+
+<Note>
+HTTP method values outside the standard HTTP/1.1 methods or HTTP/2 PRI verb are labeled as `EXTENSION_METHOD`.
+</Note>
+
+## OpenTelemetry Semantic Conventions
+
+Traefik follows [OpenTelemetry semantic conventions v1.23.1](https://github.com/open-telemetry/semantic-conventions/blob/v1.23.1/docs/http/http-metrics.md):
+
+### HTTP Server Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `http.server.request.duration` | Histogram | Duration of HTTP server requests |
+
+**Labels**: `error.type`, `http.request.method`, `http.response.status_code`, `network.protocol.name`, `server.address`, `server.port`, `url.scheme`
+
+### HTTP Client Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `http.client.request.duration` | Histogram | Duration of HTTP client requests |
+
+**Labels**: `error.type`, `http.request.method`, `http.response.status_code`, `network.protocol.name`, `server.address`, `server.port`, `url.scheme`
+
+## Official Grafana Dashboards
+
+Traefik provides official Grafana dashboards:
+
+- [On-Premises Dashboard](https://grafana.com/grafana/dashboards/17346) - Dashboard ID: 17346
+- [Kubernetes Dashboard](https://grafana.com/grafana/dashboards/17347) - Dashboard ID: 17347
+
+## Complete Examples
+
+### Production Prometheus Setup
+
+<CodeGroup>
+```yaml YAML
+entryPoints:
+  web:
+    address: ':80'
+  websecure:
+    address: ':443'
+  metrics:
+    address: ':8082'
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    buckets:
+      - 0.1
+      - 0.3
+      - 1.2
+      - 5.0
+      - 10.0
+    addEntryPointsLabels: true
+    addRoutersLabels: false
+    addServicesLabels: true
+```
+
+```toml TOML
+[entryPoints.web]
+  address = ":80"
+
+[entryPoints.websecure]
+  address = ":443"
+
+[entryPoints.metrics]
+  address = ":8082"
+
+[metrics.prometheus]
+  entryPoint = "metrics"
+  buckets = [0.1, 0.3, 1.2, 5.0, 10.0]
+  addEntryPointsLabels = true
+  addRoutersLabels = false
+  addServicesLabels = true
+```
+</CodeGroup>
+
+### Multi-Backend Setup
+
+<CodeGroup>
+```yaml YAML
+metrics:
+  prometheus:
+    addServicesLabels: true
+  datadog:
+    address: 127.0.0.1:8125
+    pushInterval: 10s
+```
+
+```toml TOML
+[metrics.prometheus]
+  addServicesLabels = true
+
+[metrics.datadog]
+  address = "127.0.0.1:8125"
+  pushInterval = "10s"
+```
+</CodeGroup>
+
+<Note>
+You can enable multiple metrics backends simultaneously.
+</Note>

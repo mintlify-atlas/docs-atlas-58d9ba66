@@ -1,0 +1,213 @@
+---
+title: "StripPrefix Middleware"
+description: "Remove prefixes from paths before forwarding requests with the StripPrefix middleware in Traefik Proxy."
+---
+
+# StripPrefix Middleware
+
+Removing Prefixes From the Path Before Forwarding
+
+The StripPrefix middleware removes specified prefixes from the URL path before forwarding the request to the service.
+
+## Configuration Examples
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+# Strip prefix /foobar and /fiibar
+labels:
+  - "traefik.http.middlewares.test-stripprefix.stripprefix.prefixes=/foobar,/fiibar"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-stripprefix
+spec:
+  stripPrefix:
+    prefixes:
+      - /foobar
+      - /fiibar
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/foobar"
+          - "/fiibar"
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-stripprefix.stripPrefix]
+    prefixes = ["/foobar", "/fiibar"]
+```
+
+</CodeGroup>
+
+## Configuration Options
+
+<ParamField path="prefixes" type="array" required>
+  List of prefixes to strip from the request URL.
+  
+  For instance, `/products` also matches `/products/shoes` and `/products/shirts`.
+  
+  The middleware stores the stripped prefix in the `X-Forwarded-Prefix` header.
+</ParamField>
+
+<ParamField path="forceSlash" type="boolean" default="true">
+  Ensures the resulting stripped path is not an empty string by replacing it with `/` when necessary.
+  
+  <Warning>This option is deprecated and should not be used.</Warning>
+</ParamField>
+
+## How It Works
+
+The StripPrefix middleware:
+
+1. Strips the matching path prefix from the request URL
+2. Stores the stripped prefix in the `X-Forwarded-Prefix` header
+3. Forwards the modified request to the backend service
+
+<Note>
+**Backend Asset URLs**
+
+If your backend is serving assets (e.g., images or JavaScript files), it can use the `X-Forwarded-Prefix` header to properly construct relative URLs.
+
+For example, if the original request is `/products/shoes/image.png` and you strip `/products`, the backend should return URLs like `/products/shoes/image.png` (not `/image.png`).
+</Note>
+
+## Usage Examples
+
+### Exposing Backend on a Subpath
+
+Use StripPrefix when your backend listens on the root path (`/`) but should be exposed on a specific prefix:
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`) && PathPrefix(`/api`)"
+      service: my-api
+      middlewares:
+        - api-strip-prefix
+
+  middlewares:
+    api-strip-prefix:
+      stripPrefix:
+        prefixes:
+          - "/api"
+
+  services:
+    my-api:
+      loadBalancer:
+        servers:
+          - url: "http://backend:8080"
+```
+
+```toml File (TOML)
+[http.routers]
+  [http.routers.my-router]
+    rule = "Host(`example.com`) && PathPrefix(`/api`)"
+    service = "my-api"
+    middlewares = ["api-strip-prefix"]
+
+[http.middlewares]
+  [http.middlewares.api-strip-prefix.stripPrefix]
+    prefixes = ["/api"]
+
+[http.services]
+  [http.services.my-api]
+    [http.services.my-api.loadBalancer]
+      [[http.services.my-api.loadBalancer.servers]]
+        url = "http://backend:8080"
+```
+
+</CodeGroup>
+
+In this example:
+- Request: `https://example.com/api/users`
+- Forwarded to backend: `http://backend:8080/users`
+- `X-Forwarded-Prefix: /api`
+
+### Multiple Prefix Stripping
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  middlewares:
+    multi-strip:
+      stripPrefix:
+        prefixes:
+          - "/v1"
+          - "/v2"
+          - "/api"
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.multi-strip.stripPrefix]
+    prefixes = ["/v1", "/v2", "/api"]
+```
+
+</CodeGroup>
+
+### Combining with Other Middlewares
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  routers:
+    app-router:
+      rule: "Host(`example.com`) && PathPrefix(`/app`)"
+      service: app-service
+      middlewares:
+        - app-auth
+        - app-strip
+        - app-headers
+
+  middlewares:
+    app-auth:
+      basicAuth:
+        users:
+          - "user:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+    
+    app-strip:
+      stripPrefix:
+        prefixes:
+          - "/app"
+    
+    app-headers:
+      headers:
+        customRequestHeaders:
+          X-Custom-Header: "value"
+```
+
+```toml File (TOML)
+[http.routers]
+  [http.routers.app-router]
+    rule = "Host(`example.com`) && PathPrefix(`/app`)"
+    service = "app-service"
+    middlewares = ["app-auth", "app-strip", "app-headers"]
+
+[http.middlewares]
+  [http.middlewares.app-auth.basicAuth]
+    users = ["user:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"]
+  
+  [http.middlewares.app-strip.stripPrefix]
+    prefixes = ["/app"]
+  
+  [http.middlewares.app-headers.headers]
+    [http.middlewares.app-headers.headers.customRequestHeaders]
+      X-Custom-Header = "value"
+```
+
+</CodeGroup>

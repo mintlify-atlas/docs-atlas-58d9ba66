@@ -1,0 +1,256 @@
+---
+title: "Headers Middleware"
+description: "Manage request and response headers with the Headers middleware in Traefik Proxy."
+---
+
+# Headers Middleware
+
+Managing Request/Response Headers
+
+The Headers middleware manages the headers of requests and responses. A set of forwarded headers are automatically added by default.
+
+## Configuration Examples
+
+### Adding Headers to Request and Response
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.testHeader.headers.customrequestheaders.X-Script-Name=test"
+  - "traefik.http.middlewares.testHeader.headers.customresponseheaders.X-Custom-Response-Header=value"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-header
+spec:
+  headers:
+    customRequestHeaders:
+      X-Script-Name: "test"
+    customResponseHeaders:
+      X-Custom-Response-Header: "value"
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    testHeader:
+      headers:
+        customRequestHeaders:
+          X-Script-Name: "test"
+        customResponseHeaders:
+          X-Custom-Response-Header: "value"
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.testHeader.headers]
+    [http.middlewares.testHeader.headers.customRequestHeaders]
+      X-Script-Name = "test"
+    [http.middlewares.testHeader.headers.customResponseHeaders]
+      X-Custom-Response-Header = "value"
+```
+
+</CodeGroup>
+
+### Security Headers
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.testHeader.headers.framedeny=true"
+  - "traefik.http.middlewares.testHeader.headers.browserxssfilter=true"
+  - "traefik.http.middlewares.testHeader.headers.stsSeconds=31536000"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-header
+spec:
+  headers:
+    frameDeny: true
+    browserXssFilter: true
+    stsSeconds: 31536000
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    testHeader:
+      headers:
+        frameDeny: true
+        browserXssFilter: true
+        stsSeconds: 31536000
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.testHeader.headers]
+    frameDeny = true
+    browserXssFilter = true
+    stsSeconds = 31536000
+```
+
+</CodeGroup>
+
+### CORS Headers
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.testheader.headers.accesscontrolallowmethods=GET,OPTIONS,PUT"
+  - "traefik.http.middlewares.testheader.headers.accesscontrolallowheaders=*"
+  - "traefik.http.middlewares.testheader.headers.accesscontrolalloworiginlist=https://foo.bar.org,https://example.org"
+  - "traefik.http.middlewares.testheader.headers.accesscontrolmaxage=100"
+  - "traefik.http.middlewares.testheader.headers.addvaryheader=true"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-header
+spec:
+  headers:
+    accessControlAllowMethods:
+      - "GET"
+      - "OPTIONS"
+      - "PUT"
+    accessControlAllowHeaders:
+      - "*"
+    accessControlAllowOriginList:
+      - "https://foo.bar.org"
+      - "https://example.org"
+    accessControlMaxAge: 100
+    addVaryHeader: true
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    testHeader:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - OPTIONS
+          - PUT
+        accessControlAllowHeaders: "*"
+        accessControlAllowOriginList:
+          - https://foo.bar.org
+          - https://example.org
+        accessControlMaxAge: 100
+        addVaryHeader: true
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.testHeader.headers]
+    accessControlAllowMethods = ["GET", "OPTIONS", "PUT"]
+    accessControlAllowHeaders = ["*"]
+    accessControlAllowOriginList = ["https://foo.bar.org","https://example.org"]
+    accessControlMaxAge = 100
+    addVaryHeader = true
+```
+
+</CodeGroup>
+
+## Configuration Options
+
+<Warning>Custom headers will overwrite existing headers if they have identical names.</Warning>
+
+### Custom Headers
+
+<ParamField path="customRequestHeaders" type="object">
+  Header names and values to apply to the request.
+</ParamField>
+
+<ParamField path="customResponseHeaders" type="object">
+  Header names and values to apply to the response.
+</ParamField>
+
+### CORS Headers
+
+<ParamField path="accessControlAllowCredentials" type="boolean">
+  Indicates whether the request can include user credentials.
+</ParamField>
+
+<ParamField path="accessControlAllowHeaders" type="array">
+  Header field names that can be used as part of the request.
+</ParamField>
+
+<ParamField path="accessControlAllowMethods" type="array">
+  Methods that can be used during requests.
+</ParamField>
+
+<ParamField path="accessControlAllowOriginList" type="array">
+  List of allowed origins. A wildcard origin `*` can also be configured.
+</ParamField>
+
+<ParamField path="accessControlAllowOriginListRegex" type="array">
+  Regular expressions for allowed origins.
+</ParamField>
+
+<ParamField path="accessControlExposeHeaders" type="array">
+  Headers that are safe to expose to the API of a CORS API specification.
+</ParamField>
+
+<ParamField path="accessControlMaxAge" type="integer">
+  How many seconds a preflight request can be cached.
+</ParamField>
+
+<ParamField path="addVaryHeader" type="boolean">
+  Add or modify the Vary header to demonstrate that server responses can differ based on the origin header.
+</ParamField>
+
+### Security Headers
+
+<ParamField path="stsSeconds" type="integer" default="0">
+  Max-age of the Strict-Transport-Security header. If set to 0, the header is not set.
+</ParamField>
+
+<ParamField path="stsIncludeSubdomains" type="boolean">
+  Add includeSubDomains directive to Strict-Transport-Security header.
+</ParamField>
+
+<ParamField path="stsPreload" type="boolean">
+  Add preload flag to Strict-Transport-Security header.
+</ParamField>
+
+<ParamField path="forceSTSHeader" type="boolean">
+  Add STS header even when the connection is HTTP.
+</ParamField>
+
+<ParamField path="frameDeny" type="boolean">
+  Add X-Frame-Options header with the value of DENY.
+</ParamField>
+
+<ParamField path="customFrameOptionsValue" type="string">
+  Set custom value for X-Frame-Options header (overrides frameDeny).
+</ParamField>
+
+<ParamField path="contentTypeNosniff" type="boolean">
+  Add X-Content-Type-Options header with the value nosniff.
+</ParamField>
+
+<ParamField path="browserXssFilter" type="boolean">
+  Add X-XSS-Protection header with the value 1; mode=block.
+</ParamField>
+
+<ParamField path="contentSecurityPolicy" type="string">
+  Set Content-Security-Policy header value.
+</ParamField>
+
+<ParamField path="referrerPolicy" type="string">
+  Control whether browsers forward the Referer header to other sites.
+</ParamField>
+
+<ParamField path="permissionsPolicy" type="string">
+  Control browser features.
+</ParamField>

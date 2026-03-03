@@ -1,0 +1,669 @@
+---
+title: 'Kubernetes CRD Provider'
+description: 'Use Traefik Custom Resource Definitions (CRD) for advanced Kubernetes routing with IngressRoute, Middleware, and more.'
+---
+
+# Kubernetes CRD Provider
+
+The Kubernetes Ingress Controller, The Custom Resource Way
+
+The Traefik team developed Custom Resource Definitions (CRDs) to provide access to all Traefik features through native Kubernetes resources, going beyond the limitations of the standard Ingress resource.
+
+## Why Use CRDs?
+
+The Kubernetes Ingress resource is limited to basic HTTP routing. Traefik CRDs unlock:
+
+✅ **TCP and UDP routing**  
+✅ **Native middleware support**  
+✅ **Advanced routing rules**  
+✅ **TLS options and configurations**  
+✅ **Type-safe Kubernetes resources**  
+✅ **No annotation overload**
+
+## Quick Start
+
+<Steps>
+  <Step title="Install CRDs and RBAC">
+    ```bash
+    # Install Traefik CRDs
+    kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.6/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
+    
+    # Install RBAC
+    kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.6/docs/content/reference/dynamic-configuration/kubernetes-crd-rbac.yml
+    ```
+  </Step>
+  
+  <Step title="Enable Provider">
+    <CodeGroup>
+    ```yaml Static Config
+    providers:
+      kubernetesCRD:
+        enabled: true
+    ```
+    
+    ```bash CLI
+    --providers.kubernetescrd=true
+    ```
+    
+    ```yaml Helm
+    providers:
+      kubernetesCRD:
+        enabled: true
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Create IngressRoute">
+    ```yaml
+    apiVersion: traefik.io/v1alpha1
+    kind: IngressRoute
+    metadata:
+      name: my-app
+      namespace: default
+    spec:
+      entryPoints:
+        - websecure
+      routes:
+        - match: Host(`app.example.com`)
+          kind: Rule
+          services:
+            - name: my-app
+              port: 80
+      tls:
+        certResolver: letsencrypt
+    ```
+  </Step>
+</Steps>
+
+## Available Custom Resources
+
+### IngressRoute (HTTP)
+
+Define HTTP/HTTPS routing rules:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-route
+  namespace: production
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    # Multiple routes
+    - match: Host(`api.example.com`) && PathPrefix(`/v1`)
+      kind: Rule
+      services:
+        - name: api-v1
+          port: 8080
+      middlewares:
+        - name: api-auth
+        - name: rate-limit
+    
+    - match: Host(`api.example.com`) && PathPrefix(`/v2`)
+      kind: Rule
+      services:
+        - name: api-v2
+          port: 8080
+  
+  tls:
+    certResolver: letsencrypt
+    domains:
+      - main: example.com
+        sans:
+          - "*.example.com"
+```
+
+### IngressRouteTCP
+
+Route TCP traffic:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: postgres-route
+spec:
+  entryPoints:
+    - postgresql
+  routes:
+    - match: HostSNI(`db.example.com`)
+      services:
+        - name: postgres
+          port: 5432
+  tls:
+    passthrough: true
+```
+
+### IngressRouteUDP
+
+Route UDP traffic:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteUDP
+metadata:
+  name: dns-route
+spec:
+  entryPoints:
+    - dns
+  routes:
+    - services:
+        - name: coredns
+          port: 53
+```
+
+### Middleware
+
+Define reusable middleware:
+
+<CodeGroup>
+```yaml Authentication
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: basic-auth
+  namespace: default
+spec:
+  basicAuth:
+    secret: auth-secret
+```
+
+```yaml Rate Limiting
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit
+spec:
+  rateLimit:
+    average: 100
+    burst: 50
+```
+
+```yaml Headers
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+spec:
+  headers:
+    customResponseHeaders:
+      X-Custom-Header: "value"
+    sslRedirect: true
+    stsSeconds: 31536000
+```
+
+```yaml Strip Prefix
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api
+spec:
+  stripPrefix:
+    prefixes:
+      - /api
+```
+</CodeGroup>
+
+### TLSOption
+
+Configure TLS settings:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: modern-tls
+  namespace: default
+spec:
+  minVersion: VersionTLS13
+  cipherSuites:
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+  curvePreferences:
+    - CurveP521
+    - CurveP384
+```
+
+### TLSStore
+
+Define default certificates:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: default
+spec:
+  defaultCertificate:
+    secretName: default-tls-cert
+```
+
+## Provider Configuration
+
+### endpoint
+
+_Optional, Default: Auto-detected_
+
+Kubernetes API server endpoint.
+
+```yaml
+providers:
+  kubernetesCRD:
+    endpoint: "https://kubernetes.default.svc"
+```
+
+### namespaces
+
+_Optional, Default: All namespaces_
+
+Limit watched namespaces:
+
+```yaml
+providers:
+  kubernetesCRD:
+    namespaces:
+      - production
+      - staging
+```
+
+### labelSelector
+
+_Optional, Default: ""_
+
+Filter resources by label:
+
+```yaml
+providers:
+  kubernetesCRD:
+    labelSelector: "environment=production"
+```
+
+<Warning>
+  The label selector applies to **all** Traefik CRDs. All resources must match the filter.
+</Warning>
+
+### ingressClass
+
+_Optional, Default: ""_
+
+Filter by ingress class:
+
+```yaml
+providers:
+  kubernetesCRD:
+    ingressClass: "traefik-internal"
+```
+
+Resource annotation:
+
+```yaml
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: traefik-internal
+```
+
+### allowCrossNamespace
+
+_Optional, Default: false_
+
+Allow IngressRoutes to reference resources in other namespaces:
+
+```yaml
+providers:
+  kubernetesCRD:
+    allowCrossNamespace: true
+```
+
+<Note>
+  Enabling this has security implications. Ensure proper RBAC is in place.
+</Note>
+
+### allowExternalNameServices
+
+_Optional, Default: false_
+
+Allow ExternalName services:
+
+```yaml
+providers:
+  kubernetesCRD:
+    allowExternalNameServices: true
+```
+
+### allowEmptyServices
+
+_Optional, Default: false_
+
+Create load balancers even when no endpoints are available (returns 503 vs 404):
+
+```yaml
+providers:
+  kubernetesCRD:
+    allowEmptyServices: true
+```
+
+### nativeLBByDefault
+
+_Optional, Default: false_
+
+Use Kubernetes native load balancing:
+
+```yaml
+providers:
+  kubernetesCRD:
+    nativeLBByDefault: true
+```
+
+### throttleDuration
+
+_Optional, Default: 0_
+
+Throttle configuration updates:
+
+```yaml
+providers:
+  kubernetesCRD:
+    throttleDuration: "2s"
+```
+
+## Complete Example
+
+<CodeGroup>
+```yaml Application Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-server
+  namespace: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-server
+  template:
+    metadata:
+      labels:
+        app: api-server
+    spec:
+      containers:
+        - name: api
+          image: myorg/api:v1.0
+          ports:
+            - containerPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-server
+  namespace: production
+spec:
+  selector:
+    app: api-server
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+```yaml Middleware
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-auth
+  namespace: production
+spec:
+  basicAuth:
+    secret: api-users
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-ratelimit
+  namespace: production
+spec:
+  rateLimit:
+    average: 100
+    period: 1s
+    burst: 200
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-headers
+  namespace: production
+spec:
+  headers:
+    customResponseHeaders:
+      X-API-Version: "v1.0"
+    accessControlAllowOriginList:
+      - "https://example.com"
+```
+
+```yaml IngressRoute
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-route
+  namespace: production
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api.example.com`)
+      kind: Rule
+      services:
+        - name: api-server
+          port: 80
+          strategy: RoundRobin
+          weight: 10
+      middlewares:
+        - name: api-auth
+        - name: api-ratelimit
+        - name: api-headers
+  tls:
+    certResolver: letsencrypt
+    options:
+      name: modern-tls
+```
+</CodeGroup>
+
+## Advanced Patterns
+
+### Canary Deployments
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: canary-route
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`app.example.com`)
+      kind: Rule
+      services:
+        # 90% to stable version
+        - name: app-v1
+          port: 80
+          weight: 90
+        # 10% to canary version
+        - name: app-v2
+          port: 80
+          weight: 10
+```
+
+### Cross-Namespace References
+
+```yaml
+# Middleware in 'shared' namespace
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: common-auth
+  namespace: shared
+spec:
+  basicAuth:
+    secret: auth-secret
+
+---
+# IngressRoute in 'app' namespace
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: my-app
+  namespace: app
+spec:
+  routes:
+    - match: Host(`app.example.com`)
+      kind: Rule
+      services:
+        - name: my-app
+          port: 80
+      middlewares:
+        # Reference middleware from 'shared' namespace
+        - name: common-auth
+          namespace: shared
+```
+
+<Note>
+  Requires `allowCrossNamespace: true` in provider configuration.
+</Note>
+
+### Multiple Domains with Shared Config
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: multi-domain
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`example.com`) || Host(`www.example.com`)
+      kind: Rule
+      services:
+        - name: web-frontend
+          port: 80
+      middlewares:
+        - name: redirect-www
+    
+    - match: Host(`api.example.com`)
+      kind: Rule
+      services:
+        - name: api-backend
+          port: 8080
+      middlewares:
+        - name: api-auth
+```
+
+## Let's Encrypt with CRDs
+
+<Warning>
+  **High Availability Limitation**: Running multiple Traefik replicas with Let's Encrypt is not officially supported. Use [cert-manager](https://cert-manager.io/) for HA setups.
+</Warning>
+
+### Single Instance Setup
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: my-app
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`app.example.com`)
+      kind: Rule
+      services:
+        - name: my-app
+          port: 80
+  tls:
+    certResolver: letsencrypt
+```
+
+### HA with cert-manager
+
+1. Install cert-manager
+2. Enable Kubernetes Ingress provider (for cert-manager ACME challenges)
+3. Reference certificates in IngressRoute:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: my-app
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`app.example.com`)
+      kind: Rule
+      services:
+        - name: my-app
+          port: 80
+  tls:
+    secretName: app-tls-cert  # Created by cert-manager
+```
+
+## Troubleshooting
+
+### CRDs Not Recognized
+
+```bash
+# Check if CRDs are installed
+kubectl get crd | grep traefik
+
+# Reinstall if missing
+kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.6/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
+```
+
+### RBAC Errors
+
+```bash
+# Verify RBAC
+kubectl get clusterrole traefik-ingress-controller -o yaml
+
+# Check service account
+kubectl get serviceaccount traefik-ingress-controller -n traefik
+```
+
+### Routes Not Working
+
+<Steps>
+  <Step title="Check IngressRoute Status">
+    ```bash
+    kubectl describe ingressroute my-route
+    ```
+  </Step>
+  
+  <Step title="Verify Service Endpoints">
+    ```bash
+    kubectl get endpoints my-service
+    ```
+  </Step>
+  
+  <Step title="Check Traefik Logs">
+    ```bash
+    kubectl logs -n traefik deployment/traefik
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CRD Reference" icon="book" href="/reference/dynamic-configuration/kubernetes-crd">
+    Complete CRD specification and fields
+  </Card>
+  <Card title="Routing Guide" icon="route" href="/routing/providers/kubernetes-crd">
+    Advanced routing examples and patterns
+  </Card>
+</CardGroup>

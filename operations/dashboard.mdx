@@ -1,0 +1,473 @@
+---
+title: "Dashboard"
+description: "Web-based dashboard for visualizing and monitoring Traefik routes, services, and middlewares"
+---
+
+# Web Dashboard
+
+The Traefik dashboard provides a visual interface for monitoring active routes, services, middlewares, and overall system health.
+
+## Overview
+
+The dashboard is the central place to visualize and monitor:
+
+- Active HTTP, TCP, and UDP routers
+- Services and their health status
+- Middleware chain configurations
+- Entry points and their usage
+- Provider information
+- Real-time system statistics
+
+The dashboard is served at `/dashboard/` (trailing slash mandatory) on the same location as the [API](/operations/api).
+
+<Note>
+  The trailing slash in `/dashboard/` is mandatory. Accessing `/dashboard` without the trailing slash will redirect to `/dashboard/`.
+</Note>
+
+## Access Methods
+
+There are two ways to access the dashboard:
+
+1. **Secure Mode** (Recommended) - With authentication and custom routing
+2. **Insecure Mode** - For development/testing only
+
+## Secure Mode Configuration
+
+This is the recommended approach for production environments.
+
+<Steps>
+  <Step title="Enable the API">
+    First, enable the API in your static configuration:
+    
+    <CodeGroup>
+    ```yaml File (YAML)
+    api:
+      dashboard: true
+    ```
+    
+    ```toml File (TOML)
+    [api]
+      dashboard = true
+    ```
+    
+    ```bash CLI
+    --api=true --api.dashboard=true
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Create Router with Authentication">
+    Configure a router pointing to the `api@internal` service with authentication middleware:
+    
+    <CodeGroup>
+    ```yaml File (YAML)
+    http:
+      routers:
+        dashboard:
+          rule: "Host(`traefik.example.com`)"
+          service: api@internal
+          middlewares:
+            - auth
+          entryPoints:
+            - websecure
+          tls:
+            certResolver: letsencrypt
+      
+      middlewares:
+        auth:
+          basicAuth:
+            users:
+              - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+    ```
+    
+    ```toml File (TOML)
+    [http.routers.dashboard]
+      rule = "Host(`traefik.example.com`)"
+      service = "api@internal"
+      middlewares = ["auth"]
+      entryPoints = ["websecure"]
+      
+      [http.routers.dashboard.tls]
+        certResolver = "letsencrypt"
+    
+    [http.middlewares.auth.basicAuth]
+      users = [
+        "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+      ]
+    ```
+    
+    ```yaml Docker Labels
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.example.com`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dashboard.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=admin:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/"
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Access the Dashboard">
+    Navigate to `https://traefik.example.com/dashboard/` in your browser and enter your credentials.
+  </Step>
+</Steps>
+
+## Dashboard Router Rule
+
+The router rule must match both `/api` and `/dashboard` path prefixes.
+
+### Recommended: Host-Based Rule
+
+```yaml
+rule: "Host(`traefik.example.com`)"
+```
+
+This matches all paths on the host domain, including `/dashboard/` and `/api`.
+
+### Alternative: Path Prefix Rule
+
+```yaml
+rule: "PathPrefix(`/api`) || PathPrefix(`/dashboard`)"
+```
+
+Matches only the API and dashboard paths.
+
+### Combined Rule
+
+```yaml
+rule: "Host(`traefik.example.com`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+```
+
+Matches API and dashboard paths on a specific host only.
+
+<Note>
+  Using a Host-based rule is the simplest and most reliable approach.
+</Note>
+
+## Authentication Examples
+
+### Basic Authentication
+
+Generate password hash:
+
+```bash
+# Using htpasswd
+htpasswd -nb admin mypassword
+
+# Using openssl
+echo $(openssl passwd -apr1 mypassword)
+```
+
+Configure the middleware:
+
+```yaml
+http:
+  middlewares:
+    dashboard-auth:
+      basicAuth:
+        users:
+          - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+          - "user:$apr1$Q8eP2Qcq$9yZ1sN0nYlJC8dRcqOzMm."
+```
+
+### Forward Authentication
+
+Delegate authentication to an external service:
+
+```yaml
+http:
+  middlewares:
+    oauth:
+      forwardAuth:
+        address: "https://oauth.example.com/auth"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - "X-Auth-User"
+          - "X-Auth-Email"
+  
+  routers:
+    dashboard:
+      rule: "Host(`traefik.example.com`)"
+      service: api@internal
+      middlewares:
+        - oauth
+```
+
+### IP Allow List
+
+Restrict access by IP address:
+
+```yaml
+http:
+  middlewares:
+    internal-only:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "192.168.0.0/16"
+  
+  routers:
+    dashboard:
+      rule: "Host(`traefik.example.com`)"
+      service: api@internal
+      middlewares:
+        - internal-only
+```
+
+## Custom Base Path
+
+Customize the base path for API and dashboard endpoints:
+
+<CodeGroup>
+```yaml File (YAML)
+api:
+  basePath: "/traefik"
+  dashboard: true
+```
+
+```toml File (TOML)
+[api]
+  basePath = "/traefik"
+  dashboard = true
+```
+
+```bash CLI
+--api.basePath=/traefik
+--api.dashboard=true
+```
+</CodeGroup>
+
+This configuration:
+- Serves the API at `/traefik/api`
+- Serves the dashboard at `/traefik/dashboard/`
+
+Update your router rule accordingly:
+
+```yaml
+http:
+  routers:
+    dashboard:
+      rule: "Host(`traefik.example.com`) && (PathPrefix(`/traefik/api`) || PathPrefix(`/traefik/dashboard`))"
+      service: api@internal
+```
+
+## Insecure Mode
+
+<Note>
+  Insecure mode is for development and testing only. Never use in production.
+</Note>
+
+Enable insecure mode:
+
+<CodeGroup>
+```yaml File (YAML)
+api:
+  insecure: true
+  dashboard: true
+```
+
+```toml File (TOML)
+[api]
+  insecure = true
+  dashboard = true
+```
+
+```bash CLI
+--api.insecure=true
+--api.dashboard=true
+```
+</CodeGroup>
+
+The dashboard is accessible at:
+- `http://<traefik-ip>:8080/dashboard/`
+
+If the `traefik` entry point doesn't exist, it's automatically created on port 8080.
+
+**Limitations of insecure mode:**
+- Cannot add authentication middleware
+- Incompatible with custom base path
+- Exposes all API endpoints without protection
+
+## Dashboard Features
+
+### HTTP Routers View
+
+Displays all HTTP routers with:
+- Router name and provider
+- Rule configuration
+- Service assignment
+- Middleware chain
+- Entry points in use
+- Status (enabled/disabled/warning/error)
+
+### HTTP Services View
+
+Shows all services including:
+- Service name and type (load balancer, weighted, mirroring)
+- Backend servers and their health status
+- Load balancing configuration
+- Used by which routers
+
+### HTTP Middlewares View
+
+Lists all middlewares with:
+- Middleware name and type
+- Configuration summary
+- Which routers use this middleware
+
+### TCP Routers & Services
+
+Similar views for TCP routers, services, and middlewares.
+
+### UDP Routers & Services
+
+Similar views for UDP routers and services.
+
+### Features Overview
+
+Displays:
+- Enabled providers (Docker, Kubernetes, File, etc.)
+- Active features (Metrics, Tracing, Access Logs)
+- System statistics
+
+## Disabling the Dashboard
+
+To disable the dashboard while keeping the API enabled:
+
+<CodeGroup>
+```yaml File (YAML)
+api:
+  dashboard: false
+```
+
+```toml File (TOML)
+[api]
+  dashboard = false
+```
+
+```bash CLI
+--api.dashboard=false
+```
+</CodeGroup>
+
+## Docker Example
+
+Complete Docker Compose example with secure dashboard:
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v3.2
+    command:
+      - --api.dashboard=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      - --certificatesresolvers.letsencrypt.acme.email=admin@example.com
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme.json
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./acme.json:/acme.json
+    labels:
+      - "traefik.enable=true"
+      
+      # Dashboard
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.example.com`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.dashboard.middlewares=dashboard-auth"
+      
+      # Authentication
+      - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/"
+```
+
+## Kubernetes Example
+
+```yaml dashboard-ingress.yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dashboard
+  namespace: traefik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`traefik.example.com`)
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
+      middlewares:
+        - name: auth
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: auth
+  namespace: traefik
+spec:
+  basicAuth:
+    secret: dashboard-users
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dashboard-users
+  namespace: traefik
+type: Opaque
+data:
+  # admin:password (base64 encoded)
+  users: YWRtaW46JGFwcjEkSDZ1c2tra1ckSWdYTFA2ZXdUclN1QmtUcnFFOHdqLwo=
+```
+
+## Troubleshooting
+
+### Dashboard Shows 404
+
+<Steps>
+  <Step title="Check Trailing Slash">
+    Ensure you're accessing `/dashboard/` with the trailing slash.
+  </Step>
+  
+  <Step title="Verify Router Rule">
+    Confirm the router rule matches both `/api` and `/dashboard` paths.
+  </Step>
+  
+  <Step title="Check API Enabled">
+    Verify `api.dashboard=true` is set in static configuration.
+  </Step>
+</Steps>
+
+### Authentication Not Working
+
+- Verify password hash is correctly formatted
+- Check middleware is attached to the router
+- Ensure router points to `api@internal` service
+
+### Dashboard Not Loading Assets
+
+- Check browser console for errors
+- Verify `Content-Security-Policy` headers
+- Ensure base path is correctly configured if using custom paths
+
+## Source Code Reference
+
+Dashboard implementation: `pkg/api/dashboard/dashboard.go:66-127`
+
+## Additional Resources
+
+- [API Documentation](/operations/api)
+- [CLI Commands](/operations/cli)
+- [Deployment Guide](/operations/deployment)

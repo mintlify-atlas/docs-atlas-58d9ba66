@@ -1,0 +1,548 @@
+---
+title: 'Routers Configuration'
+description: 'Configure routers to connect incoming requests to services based on rules, paths, hosts, and headers.'
+---
+
+# Routers
+
+Connecting Requests to Services
+
+Routers analyze incoming requests and determine which service should handle them based on configurable rules. They are part of the **dynamic configuration**.
+
+## HTTP Routers
+
+### Basic Router Configuration
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      routers:
+        my-router:
+          rule: "Host(`example.com`) && Path(`/api`)"
+          service: api-service
+          entryPoints:
+            - websecure
+          tls:
+            certResolver: letsencrypt
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.routers.my-router]
+      rule = "Host(`example.com`) && Path(`/api`)"
+      service = "api-service"
+      entryPoints = ["websecure"]
+      [http.routers.my-router.tls]
+        certResolver = "letsencrypt"
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="rule" type="string" required>
+  Matching rule that determines if this router handles the request
+</ParamField>
+
+<ParamField path="service" type="string" required>
+  Name of the service to forward matching requests to
+</ParamField>
+
+<ParamField path="entryPoints" type="array">
+  List of EntryPoints to listen on. If not specified, listens on all default EntryPoints
+</ParamField>
+
+## Routing Rules
+
+Rules determine which requests match a router using matchers and logical operators.
+
+### Available Matchers
+
+<ParamField path="Host(`domain`)" type="matcher">
+  Match requests to specific domain
+  
+  ```yaml
+  rule: "Host(`example.com`)"
+  ```
+</ParamField>
+
+<ParamField path="HostRegexp(`regexp`)" type="matcher">
+  Match requests using regular expression
+  
+  ```yaml
+  rule: "HostRegexp(`^.+\\.example\\.com$`)"
+  ```
+</ParamField>
+
+<ParamField path="Path(`path`)" type="matcher">
+  Match exact path
+  
+  ```yaml
+  rule: "Path(`/api/users`)"
+  ```
+</ParamField>
+
+<ParamField path="PathPrefix(`prefix`)" type="matcher">
+  Match path prefix
+  
+  ```yaml
+  rule: "PathPrefix(`/api`)"
+  ```
+</ParamField>
+
+<ParamField path="PathRegexp(`regexp`)" type="matcher">
+  Match path using regular expression
+  
+  ```yaml
+  rule: "PathRegexp(`^/api/v[0-9]+`)"
+  ```
+</ParamField>
+
+<ParamField path="Method(`method`)" type="matcher">
+  Match HTTP method
+  
+  ```yaml
+  rule: "Method(`POST`)"
+  ```
+</ParamField>
+
+<ParamField path="Header(`key`, `value`)" type="matcher">
+  Match requests with specific header
+  
+  ```yaml
+  rule: "Header(`Content-Type`, `application/json`)"
+  ```
+</ParamField>
+
+<ParamField path="HeaderRegexp(`key`, `regexp`)" type="matcher">
+  Match header using regular expression
+  
+  ```yaml
+  rule: "HeaderRegexp(`Content-Type`, `^application/(json|yaml)$`)"
+  ```
+</ParamField>
+
+<ParamField path="Query(`key`, `value`)" type="matcher">
+  Match query parameter
+  
+  ```yaml
+  rule: "Query(`version`, `v2`)"
+  ```
+</ParamField>
+
+<ParamField path="ClientIP(`ip`)" type="matcher">
+  Match client IP address or CIDR range
+  
+  ```yaml
+  rule: "ClientIP(`192.168.1.0/24`)"
+  ```
+</ParamField>
+
+### Combining Rules
+
+Use logical operators to create complex rules:
+
+<CodeGroup>
+```yaml AND Operator
+rule: "Host(`example.com`) && Path(`/api`)"
+```
+
+```yaml OR Operator
+rule: "Host(`example.com`) || Host(`example.org`)"
+```
+
+```yaml NOT Operator
+rule: "Host(`example.com`) && !Path(`/admin`)"
+```
+
+```yaml Parentheses for Grouping
+rule: "Host(`example.com`) && (Path(`/api`) || Path(`/v2`))"
+```
+
+```yaml Complex Example
+rule: "(Host(`api.example.com`) || Host(`api.example.org`)) && PathPrefix(`/v2`) && !Method(`DELETE`)"
+```
+</CodeGroup>
+
+### Rule Examples
+
+<Tabs>
+  <Tab title="Domain Routing">
+    ```yaml
+    http:
+      routers:
+        # Route by domain
+        blog:
+          rule: "Host(`blog.example.com`)"
+          service: blog-service
+        
+        # Route subdomains with regex
+        api:
+          rule: "HostRegexp(`^api-[a-z]+\\.example\\.com$`)"
+          service: api-service
+        
+        # Route multiple domains
+        main:
+          rule: "Host(`example.com`) || Host(`www.example.com`)"
+          service: main-service
+    ```
+  </Tab>
+  
+  <Tab title="Path Routing">
+    ```yaml
+    http:
+      routers:
+        # API v1 routes
+        api-v1:
+          rule: "PathPrefix(`/api/v1`)"
+          service: api-v1-service
+        
+        # API v2 routes
+        api-v2:
+          rule: "PathPrefix(`/api/v2`)"
+          service: api-v2-service
+        
+        # Static files
+        static:
+          rule: "PathRegexp(`\\.(js|css|png|jpg|svg)$`)"
+          service: cdn-service
+    ```
+  </Tab>
+  
+  <Tab title="Header Routing">
+    ```yaml
+    http:
+      routers:
+        # Route by content type
+        json-api:
+          rule: "Header(`Content-Type`, `application/json`) && PathPrefix(`/api`)"
+          service: json-service
+        
+        # Route by custom header
+        mobile:
+          rule: "Header(`X-Client-Type`, `mobile`)"
+          service: mobile-service
+        
+        # Route by API version header
+        versioned:
+          rule: "HeaderRegexp(`X-API-Version`, `^v[2-3]$`)"
+          service: new-api-service
+    ```
+  </Tab>
+</Tabs>
+
+## Priority
+
+Routers are evaluated by priority. Higher priority routers are checked first.
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      routers:
+        specific:
+          rule: "Host(`api.example.com`) && Path(`/users/123`)"
+          service: specific-service
+          priority: 100
+        
+        general:
+          rule: "Host(`api.example.com`)"
+          service: general-service
+          priority: 1
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.routers.specific]
+      rule = "Host(`api.example.com`) && Path(`/users/123`)"
+      service = "specific-service"
+      priority = 100
+    
+    [http.routers.general]
+      rule = "Host(`api.example.com`)"
+      service = "general-service"
+      priority = 1
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+By default, priority equals the length of the rule. Longer rules have higher priority.
+</Note>
+
+## Middlewares
+
+Attach middlewares to process requests before forwarding to services:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      routers:
+        secured-api:
+          rule: "Host(`api.example.com`)"
+          service: api-service
+          middlewares:
+            - auth
+            - rate-limit
+            - compress
+      
+      middlewares:
+        auth:
+          basicAuth:
+            users:
+              - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+        
+        rate-limit:
+          rateLimit:
+            average: 100
+            burst: 50
+        
+        compress:
+          compress: {}
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.routers.secured-api]
+      rule = "Host(`api.example.com`)"
+      service = "api-service"
+      middlewares = ["auth", "rate-limit", "compress"]
+    
+    [http.middlewares.auth.basicAuth]
+      users = ["admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"]
+    
+    [http.middlewares.rate-limit.rateLimit]
+      average = 100
+      burst = 50
+    
+    [http.middlewares.compress]
+      [http.middlewares.compress.compress]
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+Middlewares are applied in the order they appear in the list.
+</Note>
+
+## TLS Configuration
+
+### Basic TLS
+
+Enable TLS termination:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      routers:
+        secure:
+          rule: "Host(`example.com`)"
+          service: web-service
+          entryPoints:
+            - websecure
+          tls: {}
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.routers.secure]
+      rule = "Host(`example.com`)"
+      service = "web-service"
+      entryPoints = ["websecure"]
+      [http.routers.secure.tls]
+    ```
+  </Tab>
+</Tabs>
+
+### Automatic Certificate Resolution
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      routers:
+        secure:
+          rule: "Host(`example.com`)"
+          service: web-service
+          tls:
+            certResolver: letsencrypt
+            domains:
+              - main: "example.com"
+                sans:
+                  - "*.example.com"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [http.routers.secure]
+      rule = "Host(`example.com`)"
+      service = "web-service"
+      [http.routers.secure.tls]
+        certResolver = "letsencrypt"
+        [[http.routers.secure.tls.domains]]
+          main = "example.com"
+          sans = ["*.example.com"]
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+Wildcard certificates require DNS-01 challenge. HTTP-01 challenge only works for single domains.
+</Warning>
+
+## TCP Routers
+
+TCP routers handle non-HTTP TCP connections:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    tcp:
+      routers:
+        postgres:
+          rule: "HostSNI(`db.example.com`)"
+          service: postgres-service
+          entryPoints:
+            - postgres
+          tls:
+            certResolver: letsencrypt
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [tcp.routers.postgres]
+      rule = "HostSNI(`db.example.com`)"
+      service = "postgres-service"
+      entryPoints = ["postgres"]
+      [tcp.routers.postgres.tls]
+        certResolver = "letsencrypt"
+    ```
+  </Tab>
+</Tabs>
+
+### TCP Router Rules
+
+<ParamField path="HostSNI(`domain`)" type="matcher">
+  Match Server Name Indication
+  
+  ```yaml
+  rule: "HostSNI(`example.com`)"
+  ```
+</ParamField>
+
+<ParamField path="HostSNI(`*`)" type="matcher">
+  Match all non-TLS connections
+  
+  ```yaml
+  rule: "HostSNI(`*`)"
+  ```
+</ParamField>
+
+<ParamField path="ClientIP(`ip`)" type="matcher">
+  Match client IP
+  
+  ```yaml
+  rule: "ClientIP(`192.168.1.0/24`)"
+  ```
+</ParamField>
+
+### TLS Passthrough
+
+Forward TLS connections without decryption:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    tcp:
+      routers:
+        secure-backend:
+          rule: "HostSNI(`backend.example.com`)"
+          service: backend-service
+          tls:
+            passthrough: true
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [tcp.routers.secure-backend]
+      rule = "HostSNI(`backend.example.com`)"
+      service = "backend-service"
+      [tcp.routers.secure-backend.tls]
+        passthrough = true
+    ```
+  </Tab>
+</Tabs>
+
+## Complete Example
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    http:
+      routers:
+        # Main website
+        web:
+          rule: "Host(`example.com`) || Host(`www.example.com`)"
+          service: web-service
+          entryPoints:
+            - websecure
+          middlewares:
+            - redirect-www
+            - compress
+          tls:
+            certResolver: letsencrypt
+        
+        # API with authentication
+        api:
+          rule: "Host(`api.example.com`) && PathPrefix(`/v2`)"
+          service: api-service
+          priority: 10
+          middlewares:
+            - api-auth
+            - rate-limit
+          tls:
+            certResolver: letsencrypt
+        
+        # Admin panel (IP restricted)
+        admin:
+          rule: "Host(`admin.example.com`) && ClientIP(`192.168.1.0/24`)"
+          service: admin-service
+          middlewares:
+            - admin-auth
+          tls:
+            certResolver: letsencrypt
+      
+      middlewares:
+        redirect-www:
+          redirectRegex:
+            regex: "^https://example\\.com/(.*)"
+            replacement: "https://www.example.com/${1}"
+        
+        api-auth:
+          basicAuth:
+            users:
+              - "api:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+        
+        admin-auth:
+          basicAuth:
+            users:
+              - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+        
+        rate-limit:
+          rateLimit:
+            average: 100
+            burst: 50
+        
+        compress:
+          compress: {}
+    ```
+  </Tab>
+</Tabs>

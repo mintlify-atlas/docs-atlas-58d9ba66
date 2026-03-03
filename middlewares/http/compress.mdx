@@ -1,0 +1,275 @@
+---
+title: "Compress Middleware"
+description: "Compress responses before sending them to clients with the Compress middleware in Traefik Proxy."
+---
+
+# Compress Middleware
+
+Compress Responses Before Sending to Clients
+
+The Compress middleware supports Gzip, Brotli, and Zstandard compression. The activation of compression and the compression method choice rely on the request's `Accept-Encoding` header.
+
+## Configuration Examples
+
+### Enable Compression
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.test-compress.compress=true"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-compress
+spec:
+  compress: {}
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-compress:
+      compress: {}
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-compress.compress]
+```
+
+</CodeGroup>
+
+### Compression with Excluded Content Types
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.test-compress.compress.excludedcontenttypes=text/event-stream"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-compress
+spec:
+  compress:
+    excludedContentTypes:
+      - text/event-stream
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-compress.compress]
+    excludedContentTypes = ["text/event-stream"]
+```
+
+</CodeGroup>
+
+### Compression with Specific Encodings
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.test-compress.compress.encodings=zstd,br"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-compress
+spec:
+  compress:
+    encodings:
+      - zstd
+      - br
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-compress:
+      compress:
+        encodings:
+          - zstd
+          - br
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-compress.compress]
+    encodings = ["zstd","br"]
+```
+
+</CodeGroup>
+
+## When Compression Occurs
+
+Responses are compressed when all these criteria are met:
+
+1. The `Accept-Encoding` request header contains `gzip`, `br`, `zstd`, and/or `*` (with or without quality values)
+2. The response is not already compressed (no `Content-Encoding` header)
+3. The response `Content-Type` is not excluded (or is included if using `includedContentTypes`)
+4. The response body is larger than the minimum configured bytes (default: 1024)
+
+<Note>
+If the `Accept-Encoding` header is absent and no `defaultEncoding` is configured, the response won't be compressed. If present but empty, compression is disabled.
+</Note>
+
+## Configuration Options
+
+<ParamField path="excludedContentTypes" type="array">
+  List of content types to exclude from compression. Compared case-insensitively with whitespace ignored.
+  
+  <Note>The `excludedContentTypes` and `includedContentTypes` options are mutually exclusive.</Note>
+  
+  <Note>gRPC (`application/grpc`) is never compressed.</Note>
+</ParamField>
+
+<ParamField path="includedContentTypes" type="array">
+  List of content types to include for compression. Only responses with these content types will be compressed.
+  
+  <Note>The `excludedContentTypes` and `includedContentTypes` options are mutually exclusive.</Note>
+</ParamField>
+
+<ParamField path="minResponseBodyBytes" type="integer" default="1024">
+  Minimum response body size in bytes required for compression.
+  
+  <Note>When data is sent to the client on flush (e.g., `Transfer-Encoding: chunked`), this configuration is ignored and data is compressed immediately.</Note>
+</ParamField>
+
+<ParamField path="defaultEncoding" type="string">
+  Default encoding if the `Accept-Encoding` header is not present or contains a wildcard (`*`).
+  
+  No fallback occurs when the header value is empty or unsupported.
+</ParamField>
+
+<ParamField path="encodings" type="array" default="gzip, br, zstd">
+  List of supported compression encodings. Valid entries are `gzip`, `br` (Brotli), and `zstd` (Zstandard).
+  
+  The order sets priority - the top entry has the highest priority.
+</ParamField>
+
+## Usage Examples
+
+### Compress Specific Content Types
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  middlewares:
+    json-compress:
+      compress:
+        includedContentTypes:
+          - application/json
+          - text/html
+          - text/plain
+        minResponseBodyBytes: 512
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.json-compress.compress]
+    includedContentTypes = ["application/json","text/html","text/plain"]
+    minResponseBodyBytes = 512
+```
+
+</CodeGroup>
+
+### Prioritize Zstandard Compression
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  middlewares:
+    modern-compress:
+      compress:
+        encodings:
+          - zstd
+          - br
+          - gzip
+        defaultEncoding: gzip
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.modern-compress.compress]
+    encodings = ["zstd","br","gzip"]
+    defaultEncoding = "gzip"
+```
+
+</CodeGroup>
+
+### Combining Compression with Other Middlewares
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  routers:
+    api-router:
+      rule: "Host(`api.example.com`)"
+      service: api-service
+      middlewares:
+        - api-compress
+        - api-headers
+        - api-ratelimit
+
+  middlewares:
+    api-compress:
+      compress:
+        includedContentTypes:
+          - application/json
+        minResponseBodyBytes: 256
+    
+    api-headers:
+      headers:
+        customResponseHeaders:
+          X-Custom-Header: "value"
+    
+    api-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+```
+
+```toml File (TOML)
+[http.routers]
+  [http.routers.api-router]
+    rule = "Host(`api.example.com`)"
+    service = "api-service"
+    middlewares = ["api-compress", "api-headers", "api-ratelimit"]
+
+[http.middlewares]
+  [http.middlewares.api-compress.compress]
+    includedContentTypes = ["application/json"]
+    minResponseBodyBytes = 256
+  
+  [http.middlewares.api-headers.headers]
+    [http.middlewares.api-headers.headers.customResponseHeaders]
+      X-Custom-Header = "value"
+  
+  [http.middlewares.api-ratelimit.rateLimit]
+    average = 100
+    burst = 50
+```
+
+</CodeGroup>

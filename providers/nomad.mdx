@@ -1,0 +1,756 @@
+---
+title: 'Nomad Provider'
+description: 'Discover and route HashiCorp Nomad services using tags with Traefik for dynamic service mesh routing.'
+---
+
+# Nomad Provider
+
+A Story of Tags, Services & Nomads
+
+Attach tags to your Nomad services and let Traefik automatically discover and route traffic. The Nomad provider integrates with HashiCorp Nomad's native service discovery for seamless routing in your Nomad cluster.
+
+## Quick Start
+
+<Steps>
+  <Step title="Enable Nomad Provider">
+    <CodeGroup>
+    ```yaml traefik.yml
+    providers:
+      nomad:
+        endpoint:
+          address: "http://127.0.0.1:4646"
+        exposedByDefault: true
+        prefix: "traefik"
+    ```
+    
+    ```toml traefik.toml
+    [providers.nomad]
+      [providers.nomad.endpoint]
+        address = "http://127.0.0.1:4646"
+      exposedByDefault = true
+      prefix = "traefik"
+    ```
+    
+    ```bash CLI
+    --providers.nomad=true
+    --providers.nomad.endpoint.address=http://127.0.0.1:4646
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Add Tags to Nomad Job">
+    ```hcl job.nomad
+    job "web" {
+      group "app" {
+        service {
+          name = "web"
+          port = "http"
+          
+          tags = [
+            "traefik.enable=true",
+            "traefik.http.routers.web.rule=Host(`example.com`)",
+            "traefik.http.routers.web.entrypoints=websecure",
+          ]
+        }
+        
+        task "server" {
+          driver = "docker"
+          
+          config {
+            image = "myapp:latest"
+            ports = ["http"]
+          }
+        }
+        
+        network {
+          port "http" {
+            to = 8080
+          }
+        }
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Deploy Job">
+    ```bash
+    nomad job run job.nomad
+    ```
+    
+    Traefik automatically discovers the service!
+  </Step>
+</Steps>
+
+## How It Works
+
+The Nomad provider:
+
+1. **Queries Nomad API** for registered services
+2. **Watches for changes** (optional) in real-time
+3. **Extracts routing config** from service tags
+4. **Discovers allocation IPs** and ports
+5. **Creates routes** dynamically
+6. **Updates on events** when allocations start/stop
+
+## Provider Configuration
+
+### endpoint
+
+Nomad server connection settings.
+
+#### address
+
+_Default: `http://127.0.0.1:4646`_
+
+```yaml
+providers:
+  nomad:
+    endpoint:
+      address: "http://nomad.example.com:4646"
+```
+
+#### token
+
+_Optional, Default: `""`_
+
+Nomad ACL token:
+
+```yaml
+providers:
+  nomad:
+    endpoint:
+      token: "${NOMAD_TOKEN}"
+```
+
+<Note>
+  Required ACL policy: `read-job` capability. See [Nomad ACL documentation](https://developer.hashicorp.com/nomad/tutorials/access-control/access-control-policies).
+</Note>
+
+#### endpointWaitTime
+
+_Optional, Default: `""`_
+
+Watch block duration:
+
+```yaml
+providers:
+  nomad:
+    endpoint:
+      endpointWaitTime: "15s"
+```
+
+#### tls
+
+TLS configuration:
+
+```yaml
+providers:
+  nomad:
+    endpoint:
+      address: "https://nomad.example.com:4646"
+      tls:
+        ca: "/path/to/ca.crt"
+        cert: "/path/to/client.crt"
+        key: "/path/to/client.key"
+        insecureSkipVerify: false
+```
+
+### prefix
+
+_Default: `traefik`_
+
+Tag prefix for configuration:
+
+```yaml
+providers:
+  nomad:
+    prefix: "lb"
+```
+
+Use tags like: `lb.http.routers.app.rule=...`
+
+### refreshInterval
+
+_Default: `15s`_
+
+Polling interval:
+
+```yaml
+providers:
+  nomad:
+    refreshInterval: "30s"
+```
+
+<Note>
+  Ignored when `watch: true` is enabled.
+</Note>
+
+### watch
+
+_Default: `false`_
+
+Enable real-time event watching:
+
+```yaml
+providers:
+  nomad:
+    watch: true
+```
+
+### throttleDuration
+
+_Default: `0s`_
+
+Throttle event handling:
+
+```yaml
+providers:
+  nomad:
+    watch: true
+    throttleDuration: "2s"
+```
+
+<Warning>
+  Only works with `watch: true`.
+</Warning>
+
+### exposedByDefault
+
+_Default: `true`_
+
+```yaml
+providers:
+  nomad:
+    exposedByDefault: false  # Require traefik.enable=true tag
+```
+
+### stale
+
+_Default: `false`_
+
+Allow stale reads for better performance:
+
+```yaml
+providers:
+  nomad:
+    stale: true
+```
+
+### defaultRule
+
+_Default: ``Host(`{{ normalize .Name }}`)``_
+
+```yaml
+providers:
+  nomad:
+    defaultRule: "Host(`{{ .Name }}.nomad.example.com`)"
+```
+
+### constraints
+
+_Optional, Default: `""`_
+
+Filter services by tags:
+
+<CodeGroup>
+```yaml Single
+providers:
+  nomad:
+    constraints: "Tag(`production`)"
+```
+
+```yaml Multiple
+providers:
+  nomad:
+    constraints: "Tag(`production`) && Tag(`web`)"
+```
+
+```yaml Regex
+providers:
+  nomad:
+    constraints: "TagRegex(`version-.*`)"
+```
+</CodeGroup>
+
+### namespaces (Enterprise)
+
+_Optional, Default: `""`_
+
+Watch specific namespaces:
+
+```yaml
+providers:
+  nomad:
+    namespaces:
+      - "production"
+      - "staging"
+```
+
+<Note>
+  Requires [Nomad Enterprise](https://www.hashicorp.com/products/nomad) with namespace support.
+</Note>
+
+### allowEmptyServices
+
+_Default: `false`_
+
+Create load balancers even with no healthy allocations:
+
+```yaml
+providers:
+  nomad:
+    allowEmptyServices: true
+```
+
+## Nomad Job Examples
+
+### Basic Web Service
+
+<CodeGroup>
+```hcl Docker Driver
+job "webapp" {
+  datacenters = ["dc1"]
+  
+  group "web" {
+    count = 3
+    
+    network {
+      port "http" {
+        to = 8080
+      }
+    }
+    
+    service {
+      name = "webapp"
+      port = "http"
+      
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.webapp.rule=Host(`app.example.com`)",
+        "traefik.http.routers.webapp.entrypoints=websecure",
+        "traefik.http.routers.webapp.tls.certresolver=letsencrypt",
+      ]
+      
+      check {
+        type     = "http"
+        path     = "/health"
+        interval = "10s"
+        timeout  = "2s"
+      }
+    }
+    
+    task "app" {
+      driver = "docker"
+      
+      config {
+        image = "myapp:v1.0"
+        ports = ["http"]
+      }
+      
+      resources {
+        cpu    = 500
+        memory = 256
+      }
+    }
+  }
+}
+```
+
+```hcl Exec Driver
+job "api" {
+  group "api" {
+    network {
+      port "http" {
+        static = 8080
+      }
+    }
+    
+    service {
+      name = "api"
+      port = "http"
+      
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.api.rule=Host(`api.example.com`)",
+      ]
+    }
+    
+    task "server" {
+      driver = "exec"
+      
+      config {
+        command = "/usr/local/bin/api-server"
+      }
+    }
+  }
+}
+```
+</CodeGroup>
+
+### Service with Middleware
+
+```hcl
+job "secure-api" {
+  group "api" {
+    service {
+      name = "secure-api"
+      port = "http"
+      
+      tags = [
+        "traefik.enable=true",
+        
+        # Router
+        "traefik.http.routers.api.rule=Host(`api.example.com`) && PathPrefix(`/v1`)",
+        "traefik.http.routers.api.entrypoints=websecure",
+        "traefik.http.routers.api.middlewares=auth,ratelimit,cors",
+        
+        # Middleware
+        "traefik.http.middlewares.auth.basicauth.users=admin:$$apr1$$...",
+        "traefik.http.middlewares.ratelimit.ratelimit.average=100",
+        "traefik.http.middlewares.ratelimit.ratelimit.burst=50",
+        "traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,PUT",
+        "traefik.http.middlewares.cors.headers.accesscontrolalloworigin=*",
+        
+        # Service
+        "traefik.http.services.api.loadbalancer.healthcheck.path=/health",
+        "traefik.http.services.api.loadbalancer.healthcheck.interval=10s",
+      ]
+    }
+    
+    # ... task definition
+  }
+}
+```
+
+### Multi-Service Job
+
+```hcl
+job "microservices" {
+  group "app" {
+    network {
+      port "web" { to = 3000 }
+      port "api" { to = 8080 }
+    }
+    
+    # Frontend service
+    service {
+      name = "frontend"
+      port = "web"
+      
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.frontend.rule=Host(`app.example.com`)",
+      ]
+    }
+    
+    # API service
+    service {
+      name = "api"
+      port = "api"
+      
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.api.rule=Host(`api.example.com`)",
+      ]
+    }
+    
+    task "web" {
+      driver = "docker"
+      config {
+        image = "frontend:latest"
+        ports = ["web"]
+      }
+    }
+    
+    task "api" {
+      driver = "docker"
+      config {
+        image = "api:latest"
+        ports = ["api"]
+      }
+    }
+  }
+}
+```
+
+### Canary Deployment
+
+```hcl
+job "app" {
+  group "stable" {
+    count = 9
+    
+    service {
+      name = "app"
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.app.rule=Host(`app.example.com`)",
+        "traefik.http.services.app.loadbalancer.weight=90",
+      ]
+    }
+    
+    task "app" {
+      driver = "docker"
+      config {
+        image = "app:v1.0"
+      }
+    }
+  }
+  
+  group "canary" {
+    count = 1
+    
+    service {
+      name = "app-canary"
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.app.rule=Host(`app.example.com`)",
+        "traefik.http.services.app-canary.loadbalancer.weight=10",
+      ]
+    }
+    
+    task "app" {
+      driver = "docker"
+      config {
+        image = "app:v2.0-beta"
+      }
+    }
+  }
+}
+```
+
+## Complete Traefik Deployment
+
+```hcl
+job "traefik" {
+  datacenters = ["dc1"]
+  type        = "system"  # Run on all nodes
+  
+  group "traefik" {
+    network {
+      port "http" {
+        static = 80
+      }
+      port "https" {
+        static = 443
+      }
+      port "admin" {
+        static = 8080
+      }
+    }
+    
+    service {
+      name = "traefik"
+      port = "http"
+      
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.dashboard.rule=Host(`traefik.example.com`)",
+        "traefik.http.routers.dashboard.service=api@internal",
+      ]
+    }
+    
+    task "traefik" {
+      driver = "docker"
+      
+      config {
+        image = "traefik:v3.6"
+        network_mode = "host"
+        
+        volumes = [
+          "local/traefik.yml:/etc/traefik/traefik.yml",
+        ]
+      }
+      
+      template {
+        data = <<EOF
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  nomad:
+    endpoint:
+      address: "http://{{ env "NOMAD_IP_admin" }}:4646"
+    watch: true
+    exposedByDefault: false
+
+api:
+  dashboard: true
+EOF
+        destination = "local/traefik.yml"
+      }
+      
+      resources {
+        cpu    = 500
+        memory = 512
+      }
+    }
+  }
+}
+```
+
+## Network Modes
+
+### Bridge Mode (Default)
+
+```hcl
+network {
+  mode = "bridge"
+  port "http" {
+    to = 8080
+  }
+}
+```
+
+Traefik connects to allocation's private IP.
+
+### Host Mode
+
+```hcl
+network {
+  mode = "host"
+  port "http" {
+    static = 8080
+  }
+}
+```
+
+Direct node IP access.
+
+### CNI Plugins
+
+```hcl
+network {
+  mode = "bridge"
+  port "http" {}
+}
+```
+
+With Consul Connect or other CNI plugins.
+
+## Tag Syntax
+
+All Traefik labels work as Nomad tags:
+
+<Tabs>
+  <Tab title="Docker Labels">
+    ```yaml
+    traefik.http.routers.app.rule=Host(`example.com`)
+    traefik.http.routers.app.middlewares=auth
+    ```
+  </Tab>
+  
+  <Tab title="Nomad Tags">
+    ```hcl
+    tags = [
+      "traefik.http.routers.app.rule=Host(`example.com`)",
+      "traefik.http.routers.app.middlewares=auth",
+    ]
+    ```
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+### Services Not Discovered
+
+<Steps>
+  <Step title="Check Nomad Connection">
+    ```bash
+    curl http://127.0.0.1:4646/v1/services
+    ```
+  </Step>
+  
+  <Step title="Verify Service Registration">
+    ```bash
+    nomad service list
+    nomad service info webapp
+    ```
+  </Step>
+  
+  <Step title="Check ACL Token">
+    ```bash
+    nomad acl token self
+    ```
+    
+    Ensure `read-job` policy is attached.
+  </Step>
+  
+  <Step title="Review Traefik Logs">
+    ```bash
+    nomad alloc logs -f <traefik-alloc-id>
+    ```
+  </Step>
+</Steps>
+
+### Health Check Issues
+
+Ensure service has health checks:
+
+```hcl
+service {
+  check {
+    type     = "http"
+    path     = "/health"
+    interval = "10s"
+    timeout  = "2s"
+  }
+}
+```
+
+### ACL Configuration
+
+Create policy for Traefik:
+
+```hcl
+# traefik-policy.hcl
+namespace "*" {
+  policy = "read"
+  capabilities = ["read-job"]
+}
+```
+
+Apply policy:
+
+```bash
+nomad acl policy apply traefik-policy traefik-policy.hcl
+nomad acl token create -name="traefik" -policy=traefik-policy
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Enable Watch Mode">
+    Use `watch: true` for real-time updates instead of polling.
+  </Step>
+  
+  <Step title="Use Health Checks">
+    Always configure Nomad service health checks.
+  </Step>
+  
+  <Step title="Tag Consistently">
+    Develop a tagging strategy (environment, version, team).
+  </Step>
+  
+  <Step title="Secure ACL Tokens">
+    Use minimum required permissions and rotate tokens regularly.
+  </Step>
+  
+  <Step title="Set Stale Reads">
+    Enable `stale: true` for better performance in large clusters.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Nomad Routing" icon="route" href="/routing/providers/nomad">
+    Detailed tag configuration reference
+  </Card>
+  <Card title="Nomad Documentation" icon="book" href="https://www.nomadproject.io/docs">
+    Official HashiCorp Nomad documentation
+  </Card>
+</CardGroup>

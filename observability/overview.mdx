@@ -1,0 +1,233 @@
+---
+title: "Observability Overview"
+description: "Comprehensive observability with logs, metrics, access logs, and distributed tracing for monitoring Traefik's performance and traffic."
+---
+
+# Observability Overview
+
+Traefik provides complete observability through logs, access logs, metrics, and distributed tracing. These features give you deep visibility into your infrastructure's performance and traffic patterns.
+
+## Key Observability Features
+
+Traefik's observability features include:
+
+- **Logs** - System events, configuration changes, and operational information
+- **Access Logs** - Detailed request/response information for traffic analysis
+- **Metrics** - Performance metrics in multiple formats (Prometheus, Datadog, StatsD, InfluxDB, OpenTelemetry)
+- **Tracing** - Distributed tracing for request flow visualization
+
+## Quick Start
+
+Enable all observability features globally:
+
+<CodeGroup>
+```yaml YAML
+accessLog: {}
+
+metrics:
+  prometheus: {}
+
+tracing:
+  otlp: {}
+
+log:
+  level: INFO
+```
+
+```toml TOML
+[accessLog]
+
+[metrics]
+  [metrics.prometheus]
+
+[tracing]
+  [tracing.otlp]
+
+[log]
+  level = "INFO"
+```
+
+```bash CLI
+--accesslog=true
+--metrics.prometheus=true
+--tracing.otlp=true
+--log.level=INFO
+```
+</CodeGroup>
+
+## Per-EntryPoint Configuration
+
+You can disable observability features for specific entrypoints:
+
+<CodeGroup>
+```yaml YAML
+entryPoints:
+  web:
+    address: ':80'
+  metrics:
+    address: ':8082'
+    observability:
+      accessLogs: false
+      tracing: false
+      metrics: false
+```
+
+```toml TOML
+[entryPoints.web]
+  address = ":80"
+
+[entryPoints.metrics]
+  address = ":8082"
+  
+  [entryPoints.metrics.observability]
+    accessLogs = false
+    tracing = false
+    metrics = false
+```
+
+```bash CLI
+--entryPoints.web.address=:80
+--entryPoints.metrics.address=:8082
+--entryPoints.metrics.observability.accessLogs=false
+--entryPoints.metrics.observability.metrics=false
+--entryPoints.metrics.observability.tracing=false
+```
+</CodeGroup>
+
+<Note>
+Router-level observability configuration overrides global defaults.
+</Note>
+
+## Observability Components
+
+### Logs
+
+Traefik logs capture everything that happens within Traefik itself:
+- Startup and shutdown events
+- Configuration reloads
+- Error conditions
+- System warnings
+
+[Learn more about Logs →](/observability/logs)
+
+### Access Logs
+
+Access logs provide detailed information about each request:
+- Source IP addresses
+- Request methods and paths
+- Response status codes
+- Request/response sizes
+- Processing duration
+- Router and service information
+
+[Learn more about Access Logs →](/observability/access-logs)
+
+### Metrics
+
+Traefik exposes metrics for monitoring performance:
+- Request counts and rates
+- Response times and latencies
+- HTTP status code distribution
+- Active connections
+- TLS certificate expiration
+
+Supported backends:
+- **Prometheus** - Pull-based metrics scraping
+- **Datadog** - Push to Datadog Agent
+- **StatsD** - StatsD protocol support
+- **InfluxDB 2.x** - Time-series database
+- **OpenTelemetry** - OTLP protocol
+
+[Learn more about Metrics →](/observability/metrics)
+
+### Distributed Tracing
+
+Tracing provides end-to-end visibility into request flows:
+- Request propagation across services
+- Latency analysis
+- Service dependencies
+- Error tracking
+
+Traefik uses OpenTelemetry for distributed tracing, compatible with:
+- Jaeger
+- Zipkin
+- Any OpenTelemetry-compatible backend
+
+[Learn more about Tracing →](/observability/tracing)
+
+## Common Configuration Options
+
+### Add Internals
+
+Enable observability for internal services like `ping@internal`:
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  addInternals: true
+
+metrics:
+  addInternals: true
+
+tracing:
+  addInternals: true
+```
+
+```toml TOML
+[accessLog]
+  addInternals = true
+
+[metrics]
+  addInternals = true
+
+[tracing]
+  addInternals = true
+```
+
+```bash CLI
+--accesslog.addinternals=true
+--metrics.addinternals=true
+--tracing.addinternals=true
+```
+</CodeGroup>
+
+## Official Grafana Dashboards
+
+Traefik provides official Grafana dashboards:
+- [On-Premises Dashboard](https://grafana.com/grafana/dashboards/17346)
+- [Kubernetes Dashboard](https://grafana.com/grafana/dashboards/17347)
+
+## Best Practices
+
+<Note>
+**Performance Considerations**
+- Enable router-level metrics only when needed (high cardinality)
+- Use access log filtering to reduce volume
+- Configure appropriate trace sampling rates
+- Use buffering for high-traffic scenarios
+</Note>
+
+<Note>
+**Security**
+- Redact sensitive headers in access logs
+- Secure metrics endpoints with authentication
+- Use TLS for collector connections
+- Avoid logging credentials or tokens
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Logs" icon="file-lines" href="/observability/logs">
+    Set up Traefik system logs with rotation and formatting
+  </Card>
+  <Card title="Enable Access Logs" icon="list" href="/observability/access-logs">
+    Track every request with detailed access logging
+  </Card>
+  <Card title="Setup Metrics" icon="chart-line" href="/observability/metrics">
+    Export metrics to Prometheus, Datadog, and more
+  </Card>
+  <Card title="Configure Tracing" icon="diagram-project" href="/observability/tracing">
+    Implement distributed tracing with OpenTelemetry
+  </Card>
+</CardGroup>

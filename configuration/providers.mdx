@@ -1,0 +1,514 @@
+---
+title: 'Providers Configuration'
+description: 'Configure providers for automatic service discovery from Docker, Kubernetes, files, and other infrastructure sources.'
+---
+
+# Providers
+
+Automatic Configuration Discovery
+
+Providers are infrastructure components that Traefik queries to discover services and routing configuration. They enable dynamic configuration updates without manual intervention.
+
+## Provider Types
+
+Traefik supports four types of providers:
+
+<CardGroup cols={2}>
+  <Card title="Orchestrators" icon="docker">
+    Docker, Kubernetes, Nomad, ECS - Discover services from container platforms
+  </Card>
+  
+  <Card title="Key-Value Stores" icon="database">
+    Consul, Etcd, Redis, ZooKeeper - Store configuration in distributed KV stores
+  </Card>
+  
+  <Card title="File-Based" icon="file">
+    YAML/TOML files - Define configuration manually in files
+  </Card>
+  
+  <Card title="Service Discovery" icon="network-wired">
+    Consul Catalog, Nomad - Discover services from service catalogs
+  </Card>
+</CardGroup>
+
+## Static vs Dynamic Configuration
+
+**Static Configuration** (defined at startup):
+- Which providers to enable
+- Provider connection details
+- Provider-specific settings
+
+**Dynamic Configuration** (discovered from providers):
+- Routers
+- Services
+- Middlewares
+- TLS certificates
+
+## File Provider
+
+Define configuration in YAML or TOML files:
+
+### Basic Configuration
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    providers:
+      file:
+        directory: "/etc/traefik/dynamic"
+        watch: true
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [providers.file]
+      directory = "/etc/traefik/dynamic"
+      watch = true
+    ```
+  </Tab>
+  
+  <Tab title="CLI">
+    ```bash
+    --providers.file.directory=/etc/traefik/dynamic \
+    --providers.file.watch=true
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="directory" type="string">
+  Directory containing dynamic configuration files
+</ParamField>
+
+<ParamField path="filename" type="string">
+  Single file containing dynamic configuration (alternative to directory)
+</ParamField>
+
+<ParamField path="watch" type="boolean" default="true">
+  Automatically reload when files change
+</ParamField>
+
+### Example Dynamic Configuration File
+
+<CodeGroup>
+```yaml /etc/traefik/dynamic/config.yml
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`)"
+      service: my-service
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    my-service:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.1.10:8080"
+          - url: "http://192.168.1.11:8080"
+
+  middlewares:
+    test-compress:
+      compress: {}
+```
+
+```toml /etc/traefik/dynamic/config.toml
+[http.routers.my-router]
+  rule = "Host(`example.com`)"
+  service = "my-service"
+  [http.routers.my-router.tls]
+    certResolver = "letsencrypt"
+
+[http.services.my-service.loadBalancer]
+  [[http.services.my-service.loadBalancer.servers]]
+    url = "http://192.168.1.10:8080"
+  [[http.services.my-service.loadBalancer.servers]]
+    url = "http://192.168.1.11:8080"
+
+[http.middlewares.test-compress]
+  [http.middlewares.test-compress.compress]
+```
+</CodeGroup>
+
+## Docker Provider
+
+Automatically discover services from Docker containers:
+
+### Basic Configuration
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    providers:
+      docker:
+        endpoint: "unix:///var/run/docker.sock"
+        exposedByDefault: false
+        network: "traefik-network"
+        watch: true
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [providers.docker]
+      endpoint = "unix:///var/run/docker.sock"
+      exposedByDefault = false
+      network = "traefik-network"
+      watch = true
+    ```
+  </Tab>
+  
+  <Tab title="CLI">
+    ```bash
+    --providers.docker=true \
+    --providers.docker.endpoint=unix:///var/run/docker.sock \
+    --providers.docker.exposedByDefault=false \
+    --providers.docker.network=traefik-network
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="endpoint" type="string" default="unix:///var/run/docker.sock">
+  Docker daemon socket or TCP endpoint
+</ParamField>
+
+<ParamField path="exposedByDefault" type="boolean" default="true">
+  Automatically expose all containers (set to `false` for production)
+</ParamField>
+
+<ParamField path="network" type="string">
+  Docker network to use for connections
+</ParamField>
+
+<ParamField path="watch" type="boolean" default="true">
+  Watch for Docker events to update configuration
+</ParamField>
+
+### Container Labels
+
+Configure routing using Docker labels:
+
+<CodeGroup>
+```yaml docker-compose.yml
+services:
+  whoami:
+    image: traefik/whoami
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami.rule=Host(`whoami.example.com`)"
+      - "traefik.http.routers.whoami.entrypoints=websecure"
+      - "traefik.http.routers.whoami.tls.certresolver=letsencrypt"
+      - "traefik.http.services.whoami.loadbalancer.server.port=80"
+```
+
+```bash Docker Run
+docker run -d \
+  --name whoami \
+  --label "traefik.enable=true" \
+  --label "traefik.http.routers.whoami.rule=Host(`whoami.example.com`)" \
+  --label "traefik.http.routers.whoami.entrypoints=websecure" \
+  --label "traefik.http.routers.whoami.tls.certresolver=letsencrypt" \
+  --label "traefik.http.services.whoami.loadbalancer.server.port=80" \
+  traefik/whoami
+```
+</CodeGroup>
+
+## Kubernetes Providers
+
+### Kubernetes CRD Provider
+
+Use Traefik's Custom Resource Definitions:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    providers:
+      kubernetesCRD:
+        endpoint: "https://kubernetes.default.svc"
+        namespaces:
+          - default
+          - production
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [providers.kubernetesCRD]
+      endpoint = "https://kubernetes.default.svc"
+      namespaces = ["default", "production"]
+    ```
+  </Tab>
+</Tabs>
+
+#### IngressRoute Example
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: myapp
+  namespace: default
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`myapp.example.com`)
+      kind: Rule
+      services:
+        - name: myapp
+          port: 80
+  tls:
+    certResolver: letsencrypt
+```
+
+### Kubernetes Ingress Provider
+
+Use standard Kubernetes Ingress resources:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    providers:
+      kubernetesIngress:
+        endpoint: "https://kubernetes.default.svc"
+        namespaces:
+          - default
+          - production
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [providers.kubernetesIngress]
+      endpoint = "https://kubernetes.default.svc"
+      namespaces = ["default", "production"]
+    ```
+  </Tab>
+</Tabs>
+
+#### Ingress Example
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  rules:
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: myapp
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - myapp.example.com
+      secretName: myapp-tls
+```
+
+## HTTP Provider
+
+Fetch configuration from HTTP endpoint:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    providers:
+      http:
+        endpoint: "http://config-server/traefik.json"
+        pollInterval: "5s"
+        pollTimeout: "5s"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [providers.http]
+      endpoint = "http://config-server/traefik.json"
+      pollInterval = "5s"
+      pollTimeout = "5s"
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="endpoint" type="string" required>
+  HTTP endpoint returning JSON configuration
+</ParamField>
+
+<ParamField path="pollInterval" type="duration" default="5s">
+  How often to poll for configuration updates
+</ParamField>
+
+## Multiple Providers
+
+You can enable multiple providers simultaneously:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    providers:
+      # File-based configuration
+      file:
+        directory: "/etc/traefik/dynamic"
+        watch: true
+      
+      # Docker containers
+      docker:
+        endpoint: "unix:///var/run/docker.sock"
+        exposedByDefault: false
+      
+      # Kubernetes CRDs
+      kubernetesCRD:
+        endpoint: "https://kubernetes.default.svc"
+      
+      # Configuration reload throttling
+      providersThrottleDuration: "2s"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [providers]
+      providersThrottleDuration = "2s"
+      
+      [providers.file]
+        directory = "/etc/traefik/dynamic"
+        watch = true
+      
+      [providers.docker]
+        endpoint = "unix:///var/run/docker.sock"
+        exposedByDefault = false
+      
+      [providers.kubernetesCRD]
+        endpoint = "https://kubernetes.default.svc"
+    ```
+  </Tab>
+</Tabs>
+
+## Provider Namespaces
+
+When referencing resources across providers, use the `@provider` syntax:
+
+```yaml
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`)"
+      service: my-service
+      middlewares:
+        - auth@file          # Middleware from file provider
+        - compress@docker    # Middleware from Docker provider
+```
+
+<Note>
+The provider name is appended with `@` to reference cross-provider resources.
+</Note>
+
+## Provider Reference
+
+| Provider | Type | Config Type | Provider Name |
+|----------|------|-------------|---------------|
+| Docker | Orchestrator | Labels | `docker` |
+| Kubernetes CRD | Orchestrator | Custom Resource | `kubernetescrd` |
+| Kubernetes Ingress | Orchestrator | Ingress | `kubernetes` |
+| Kubernetes Gateway | Orchestrator | Gateway API | `kubernetesgateway` |
+| File | Manual | YAML/TOML | `file` |
+| Consul | KV Store | Key-Value | `consul` |
+| Etcd | KV Store | Key-Value | `etcd` |
+| Redis | KV Store | Key-Value | `redis` |
+| ZooKeeper | KV Store | Key-Value | `zookeeper` |
+| HTTP | Manual | JSON | `http` |
+| Consul Catalog | Service Discovery | Labels | `consulcatalog` |
+| Nomad | Orchestrator | Labels | `nomad` |
+| ECS | Orchestrator | Labels | `ecs` |
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Security">
+    - Set `exposedByDefault: false` for Docker provider
+    - Use network isolation between Traefik and services
+    - Restrict provider API access with minimal permissions
+    - Validate configuration before applying
+  </Accordion>
+  
+  <Accordion title="Performance">
+    - Use `providersThrottleDuration` to avoid excessive reloads
+    - Filter namespaces in Kubernetes providers
+    - Use constraints to limit scope of service discovery
+    - Enable `watch` mode for real-time updates
+  </Accordion>
+  
+  <Accordion title="Reliability">
+    - Always define health checks for services
+    - Use multiple providers for redundancy
+    - Set appropriate timeouts for provider connections
+    - Monitor provider connection status
+  </Accordion>
+</AccordionGroup>
+
+## Complete Example
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    # traefik.yml - Static Configuration
+    providers:
+      # Throttle configuration updates
+      providersThrottleDuration: "2s"
+      
+      # File provider for static routes
+      file:
+        directory: "/etc/traefik/dynamic"
+        watch: true
+      
+      # Docker provider for container discovery
+      docker:
+        endpoint: "unix:///var/run/docker.sock"
+        exposedByDefault: false
+        network: "traefik-public"
+        watch: true
+        constraints: "Label(`traefik.tags`, `production`)"
+      
+      # Kubernetes CRD provider
+      kubernetesCRD:
+        endpoint: "https://kubernetes.default.svc"
+        namespaces:
+          - production
+          - staging
+        labelSelector: "environment in (production, staging)"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    # traefik.toml - Static Configuration
+    [providers]
+      providersThrottleDuration = "2s"
+      
+      [providers.file]
+        directory = "/etc/traefik/dynamic"
+        watch = true
+      
+      [providers.docker]
+        endpoint = "unix:///var/run/docker.sock"
+        exposedByDefault = false
+        network = "traefik-public"
+        watch = true
+        constraints = "Label(`traefik.tags`, `production`)"
+      
+      [providers.kubernetesCRD]
+        endpoint = "https://kubernetes.default.svc"
+        namespaces = ["production", "staging"]
+        labelSelector = "environment in (production, staging)"
+    ```
+  </Tab>
+</Tabs>

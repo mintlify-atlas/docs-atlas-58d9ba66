@@ -1,0 +1,541 @@
+---
+title: "Logging Configuration"
+description: "Configure Traefik logs with multiple formats, rotation policies, and OpenTelemetry integration for comprehensive system monitoring."
+---
+
+# Logging Configuration
+
+Traefik logs capture all operational events including startup, configuration changes, errors, and system warnings. By default, logs are written to stdout in text format.
+
+## Basic Configuration
+
+Logs are enabled by default. Configure log level and format:
+
+<CodeGroup>
+```yaml YAML
+log:
+  level: DEBUG
+  format: json
+  filePath: /var/log/traefik/traefik.log
+```
+
+```toml TOML
+[log]
+  level = "DEBUG"
+  format = "json"
+  filePath = "/var/log/traefik/traefik.log"
+```
+
+```bash CLI
+--log.level=DEBUG
+--log.format=json
+--log.filePath=/var/log/traefik/traefik.log
+```
+</CodeGroup>
+
+## Configuration Options
+
+### Log Level
+
+<ParamField path="level" type="string" default="ERROR">
+  Set the logging level to control verbosity.
+</ParamField>
+
+Available log levels (in order of verbosity):
+- `TRACE` - Most verbose, includes all debug information
+- `DEBUG` - Detailed debugging information
+- `INFO` - General informational messages
+- `WARN` - Warning messages
+- `ERROR` - Error messages (default)
+- `FATAL` - Fatal errors that cause termination
+- `PANIC` - Panic-level errors
+
+<CodeGroup>
+```yaml YAML
+log:
+  level: DEBUG
+```
+
+```toml TOML
+[log]
+  level = "DEBUG"
+```
+
+```bash CLI
+--log.level=DEBUG
+```
+</CodeGroup>
+
+### File Path
+
+<ParamField path="filePath" type="string" default="stdout">
+  Path to the log file. If not specified, logs are written to stdout.
+</ParamField>
+
+When `filePath` is specified, Traefik writes logs only to the file (not to stdout). Intermediate directories are created automatically.
+
+<CodeGroup>
+```yaml YAML
+log:
+  filePath: /var/log/traefik/traefik.log
+```
+
+```toml TOML
+[log]
+  filePath = "/var/log/traefik/traefik.log"
+```
+
+```bash CLI
+--log.filePath=/var/log/traefik/traefik.log
+```
+</CodeGroup>
+
+### Format
+
+<ParamField path="format" type="string" default="common">
+  Log output format: `common` (text) or `json`.
+</ParamField>
+
+<Tabs>
+  <Tab title="Common (Text)">
+    Human-readable text format with optional colors:
+    
+    ```yaml
+    log:
+      format: common
+    ```
+    
+    Example output:
+    ```
+    time="2026-03-03T10:00:00Z" level=info msg="Configuration loaded"
+    ```
+  </Tab>
+  
+  <Tab title="JSON">
+    Structured JSON format for log aggregation:
+    
+    ```yaml
+    log:
+      format: json
+    ```
+    
+    Example output:
+    ```json
+    {"level":"info","msg":"Configuration loaded","time":"2026-03-03T10:00:00Z"}
+    ```
+  </Tab>
+</Tabs>
+
+### Disable Colors
+
+<ParamField path="noColor" type="boolean" default="false">
+  Disable colorized output when using the common format.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+log:
+  format: common
+  noColor: true
+```
+
+```toml TOML
+[log]
+  format = "common"
+  noColor = true
+```
+
+```bash CLI
+--log.format=common
+--log.nocolor=true
+```
+</CodeGroup>
+
+## Log Rotation
+
+Configure automatic log rotation to prevent disk space issues:
+
+### Max Size
+
+<ParamField path="maxSize" type="integer" default="100">
+  Maximum size in megabytes before rotation.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+log:
+  filePath: /var/log/traefik/traefik.log
+  maxSize: 50
+```
+
+```toml TOML
+[log]
+  filePath = "/var/log/traefik/traefik.log"
+  maxSize = 50
+```
+
+```bash CLI
+--log.filePath=/var/log/traefik/traefik.log
+--log.maxsize=50
+```
+</CodeGroup>
+
+### Max Backups
+
+<ParamField path="maxBackups" type="integer" default="unlimited">
+  Maximum number of old log files to retain.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+log:
+  maxBackups: 7
+```
+
+```toml TOML
+[log]
+  maxBackups = 7
+```
+
+```bash CLI
+--log.maxbackups=7
+```
+</CodeGroup>
+
+### Max Age
+
+<ParamField path="maxAge" type="integer" default="unlimited">
+  Maximum number of days to retain old log files.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+log:
+  maxAge: 30
+```
+
+```toml TOML
+[log]
+  maxAge = 30
+```
+
+```bash CLI
+--log.maxage=30
+```
+</CodeGroup>
+
+### Compression
+
+<ParamField path="compress" type="boolean" default="false">
+  Compress rotated log files using gzip.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+log:
+  compress: true
+```
+
+```toml TOML
+[log]
+  compress = true
+```
+
+```bash CLI
+--log.compress=true
+```
+</CodeGroup>
+
+### Complete Rotation Example
+
+<CodeGroup>
+```yaml YAML
+log:
+  filePath: /var/log/traefik/traefik.log
+  maxSize: 100
+  maxBackups: 3
+  maxAge: 7
+  compress: true
+```
+
+```toml TOML
+[log]
+  filePath = "/var/log/traefik/traefik.log"
+  maxSize = 100
+  maxBackups = 3
+  maxAge = 7
+  compress = true
+```
+
+```bash CLI
+--log.filePath=/var/log/traefik/traefik.log
+--log.maxsize=100
+--log.maxbackups=3
+--log.maxage=7
+--log.compress=true
+```
+</CodeGroup>
+
+## OpenTelemetry Logs
+
+<Note>
+**Experimental Feature**
+
+OpenTelemetry logs are currently experimental and must be explicitly enabled.
+</Note>
+
+### Enable Experimental Feature
+
+<CodeGroup>
+```yaml YAML
+experimental:
+  otlpLogs: true
+
+log:
+  otlp: {}
+```
+
+```toml TOML
+[experimental]
+  otlpLogs = true
+
+[log.otlp]
+```
+
+```bash CLI
+--experimental.otlpLogs=true
+--log.otlp=true
+```
+</CodeGroup>
+
+Default protocol is HTTPS to `https://localhost:4318/v1/logs`.
+
+### Service Name
+
+<ParamField path="otlp.serviceName" type="string" default="traefik">
+  Service name resource attribute for OTLP logs.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+log:
+  otlp:
+    serviceName: traefik-prod
+```
+
+```toml TOML
+[log.otlp]
+  serviceName = "traefik-prod"
+```
+
+```bash CLI
+--log.otlp.serviceName=traefik-prod
+```
+</CodeGroup>
+
+### Resource Attributes
+
+<ParamField path="otlp.resourceAttributes" type="object" default="{}">
+  Additional resource attributes sent to the collector.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+log:
+  otlp:
+    resourceAttributes:
+      environment: production
+      datacenter: us-east-1
+```
+
+```toml TOML
+[log.otlp.resourceAttributes]
+  environment = "production"
+  datacenter = "us-east-1"
+```
+
+```bash CLI
+--log.otlp.resourceAttributes.environment=production
+--log.otlp.resourceAttributes.datacenter=us-east-1
+```
+</CodeGroup>
+
+### HTTP Configuration
+
+Send logs via HTTP to the OpenTelemetry Collector:
+
+<CodeGroup>
+```yaml YAML
+log:
+  otlp:
+    http:
+      endpoint: https://otel-collector:4318/v1/logs
+      headers:
+        Authorization: Bearer token123
+      tls:
+        ca: /path/to/ca.crt
+        cert: /path/to/client.cert
+        key: /path/to/client.key
+```
+
+```toml TOML
+[log.otlp.http]
+  endpoint = "https://otel-collector:4318/v1/logs"
+  
+  [log.otlp.http.headers]
+    Authorization = "Bearer token123"
+  
+  [log.otlp.http.tls]
+    ca = "/path/to/ca.crt"
+    cert = "/path/to/client.cert"
+    key = "/path/to/client.key"
+```
+
+```bash CLI
+--log.otlp.http.endpoint=https://otel-collector:4318/v1/logs
+--log.otlp.http.headers.Authorization="Bearer token123"
+--log.otlp.http.tls.ca=/path/to/ca.crt
+```
+</CodeGroup>
+
+<Note>
+To disable TLS, use `http://` instead of `https://` in the endpoint URL.
+</Note>
+
+### gRPC Configuration
+
+Send logs via gRPC to the OpenTelemetry Collector:
+
+<CodeGroup>
+```yaml YAML
+log:
+  otlp:
+    grpc:
+      endpoint: otel-collector:4317
+      insecure: false
+      headers:
+        Authorization: Bearer token123
+      tls:
+        ca: /path/to/ca.crt
+```
+
+```toml TOML
+[log.otlp.grpc]
+  endpoint = "otel-collector:4317"
+  insecure = false
+  
+  [log.otlp.grpc.headers]
+    Authorization = "Bearer token123"
+  
+  [log.otlp.grpc.tls]
+    ca = "/path/to/ca.crt"
+```
+
+```bash CLI
+--log.otlp.grpc.endpoint=otel-collector:4317
+--log.otlp.grpc.insecure=false
+--log.otlp.grpc.headers.Authorization="Bearer token123"
+```
+</CodeGroup>
+
+## Complete Examples
+
+### Production Logging Setup
+
+<CodeGroup>
+```yaml YAML
+log:
+  level: INFO
+  format: json
+  filePath: /var/log/traefik/traefik.log
+  maxSize: 100
+  maxBackups: 5
+  maxAge: 30
+  compress: true
+```
+
+```toml TOML
+[log]
+  level = "INFO"
+  format = "json"
+  filePath = "/var/log/traefik/traefik.log"
+  maxSize = 100
+  maxBackups = 5
+  maxAge = 30
+  compress = true
+```
+</CodeGroup>
+
+### Development Setup
+
+<CodeGroup>
+```yaml YAML
+log:
+  level: DEBUG
+  format: common
+```
+
+```toml TOML
+[log]
+  level = "DEBUG"
+  format = "common"
+```
+</CodeGroup>
+
+### OpenTelemetry Integration
+
+<CodeGroup>
+```yaml YAML
+experimental:
+  otlpLogs: true
+
+log:
+  level: INFO
+  format: json
+  otlp:
+    serviceName: traefik-prod
+    resourceAttributes:
+      environment: production
+      cluster: us-east
+    http:
+      endpoint: https://otel-collector:4318/v1/logs
+      headers:
+        X-API-Key: secret
+```
+
+```toml TOML
+[experimental]
+  otlpLogs = true
+
+[log]
+  level = "INFO"
+  format = "json"
+  
+  [log.otlp]
+    serviceName = "traefik-prod"
+    
+    [log.otlp.resourceAttributes]
+      environment = "production"
+      cluster = "us-east"
+    
+    [log.otlp.http]
+      endpoint = "https://otel-collector:4318/v1/logs"
+      
+      [log.otlp.http.headers]
+        X-API-Key = "secret"
+```
+</CodeGroup>
+
+## External Log Rotation
+
+On Linux/Unix systems, you can use `logrotate` for external log rotation. Traefik responds to USR1 signals to reopen log files:
+
+```bash
+kill -USR1 <traefik-pid>
+```
+
+<Note>
+**Windows Support**
+
+USR1 signal rotation is not supported on Windows.
+</Note>

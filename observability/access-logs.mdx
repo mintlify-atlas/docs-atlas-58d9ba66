@@ -1,0 +1,728 @@
+---
+title: "Access Logs Configuration"
+description: "Configure detailed access logs in JSON, CLF, or Common formats with filtering, field customization, and OpenTelemetry integration."
+---
+
+# Access Logs Configuration
+
+Access logs provide detailed information about every request handled by Traefik, including source IP, request details, response status, processing time, and more.
+
+## Overview
+
+Access logs enable you to:
+- Monitor incoming traffic patterns
+- Analyze request/response metrics
+- Debug routing issues
+- Track client behavior
+- Audit security events
+- Generate analytics
+
+By default, access logs are written to stdout in Traefik's extended Common Log Format (CLF).
+
+## Basic Configuration
+
+Enable access logs:
+
+<CodeGroup>
+```yaml YAML
+accessLog: {}
+```
+
+```toml TOML
+[accessLog]
+```
+
+```bash CLI
+--accesslog=true
+```
+</CodeGroup>
+
+## Configuration Options
+
+### File Path
+
+<ParamField path="filePath" type="string" default="stdout">
+  Path to the access log file. If not specified, logs are written to stdout.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  filePath: /var/log/traefik/access.log
+```
+
+```toml TOML
+[accessLog]
+  filePath = "/var/log/traefik/access.log"
+```
+
+```bash CLI
+--accesslog.filepath=/var/log/traefik/access.log
+```
+</CodeGroup>
+
+### Format
+
+<ParamField path="format" type="string" default="common">
+  Log output format: `common`, `genericCLF`, or `json`.
+</ParamField>
+
+<Tabs>
+  <Tab title="Common (Traefik CLF)">
+    Traefik's extended Common Log Format with additional fields:
+    
+    ```yaml
+    accessLog:
+      format: common
+    ```
+    
+    **Format:**
+    ```
+    <remote_IP> - <client_user> [<timestamp>] "<method> <path> <protocol>" <status> <size> "<referrer>" "<user_agent>" <request_count> "<router>" "<service_url>" <duration>ms
+    ```
+    
+    **Example:**
+    ```
+    192.168.1.100 - - [03/Mar/2026:10:00:00 +0000] "GET /api/users HTTP/1.1" 200 1234 "-" "Mozilla/5.0" 42 "api-router@docker" "http://backend:8080" 45ms
+    ```
+  </Tab>
+  
+  <Tab title="Generic CLF">
+    Standard Common Log Format compatible with standard log analyzers:
+    
+    ```yaml
+    accessLog:
+      format: genericCLF
+    ```
+    
+    **Format:**
+    ```
+    <remote_IP> - <client_user> [<timestamp>] "<method> <path> <protocol>" <status> <size> "<referrer>" "<user_agent>"
+    ```
+    
+    Omits Traefik-specific fields (request count, router, service, duration).
+  </Tab>
+  
+  <Tab title="JSON">
+    Structured JSON format for log aggregation and analysis:
+    
+    ```yaml
+    accessLog:
+      format: json
+    ```
+    
+    **Example:**
+    ```json
+    {
+      "ClientHost": "192.168.1.100",
+      "ClientPort": "52143",
+      "ClientUsername": "-",
+      "DownstreamContentSize": 1234,
+      "DownstreamStatus": 200,
+      "Duration": 45000000,
+      "RequestMethod": "GET",
+      "RequestPath": "/api/users",
+      "RequestProtocol": "HTTP/1.1",
+      "RouterName": "api-router@docker",
+      "ServiceURL": "http://backend:8080",
+      "StartUTC": "2026-03-03T10:00:00Z"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Add Internals
+
+<ParamField path="addInternals" type="boolean" default="false">
+  Enable access logs for internal resources like `ping@internal`.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  addInternals: true
+```
+
+```toml TOML
+[accessLog]
+  addInternals = true
+```
+
+```bash CLI
+--accesslog.addinternals=true
+```
+</CodeGroup>
+
+### Buffering
+
+<ParamField path="bufferingSize" type="integer" default="0">
+  Number of log lines to buffer in memory before writing. Improves performance for high-traffic scenarios.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  filePath: /var/log/traefik/access.log
+  bufferingSize: 100
+```
+
+```toml TOML
+[accessLog]
+  filePath = "/var/log/traefik/access.log"
+  bufferingSize = 100
+```
+
+```bash CLI
+--accesslog.filepath=/var/log/traefik/access.log
+--accesslog.bufferingsize=100
+```
+</CodeGroup>
+
+## Filtering
+
+Filter access logs to reduce volume and focus on specific requests:
+
+### Status Codes
+
+<ParamField path="filters.statusCodes" type="array" default="[]">
+  Log only requests with specific status codes or ranges.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  filters:
+    statusCodes:
+      - "200"
+      - "300-302"
+      - "400-499"
+```
+
+```toml TOML
+[accessLog.filters]
+  statusCodes = ["200", "300-302", "400-499"]
+```
+
+```bash CLI
+--accesslog.filters.statuscodes=200,300-302,400-499
+```
+</CodeGroup>
+
+### Retry Attempts
+
+<ParamField path="filters.retryAttempts" type="boolean" default="false">
+  Log only requests that were retried at least once.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  filters:
+    retryAttempts: true
+```
+
+```toml TOML
+[accessLog.filters]
+  retryAttempts = true
+```
+
+```bash CLI
+--accesslog.filters.retryattempts=true
+```
+</CodeGroup>
+
+### Minimum Duration
+
+<ParamField path="filters.minDuration" type="duration" default="0">
+  Log only requests that took longer than specified duration.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  filters:
+    minDuration: 10ms
+```
+
+```toml TOML
+[accessLog.filters]
+  minDuration = "10ms"
+```
+
+```bash CLI
+--accesslog.filters.minduration=10ms
+```
+</CodeGroup>
+
+### Combined Filters
+
+Filters are OR-connected (any matching filter will log the request):
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  format: json
+  filters:
+    statusCodes:
+      - "400-599"  # Client and server errors
+    retryAttempts: true
+    minDuration: 100ms
+```
+
+```toml TOML
+[accessLog]
+  format = "json"
+  
+  [accessLog.filters]
+    statusCodes = ["400-599"]
+    retryAttempts = true
+    minDuration = "100ms"
+```
+</CodeGroup>
+
+This logs requests that:
+- Have 4xx or 5xx status codes, OR
+- Were retried at least once, OR
+- Took longer than 100ms
+
+## Field Customization
+
+Control which fields are logged:
+
+### Default Mode
+
+<ParamField path="fields.defaultMode" type="string" default="keep">
+  Default action for fields: `keep` or `drop`.
+</ParamField>
+
+### Field Names
+
+<ParamField path="fields.names" type="object" default="{}">
+  Override specific field behavior: `keep` or `drop`.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  format: json
+  fields:
+    defaultMode: keep
+    names:
+      ClientUsername: drop
+      Duration: keep
+```
+
+```toml TOML
+[accessLog]
+  format = "json"
+  
+  [accessLog.fields]
+    defaultMode = "keep"
+    
+    [accessLog.fields.names]
+      ClientUsername = "drop"
+      Duration = "keep"
+```
+
+```bash CLI
+--accesslog.format=json
+--accesslog.fields.defaultmode=keep
+--accesslog.fields.names.ClientUsername=drop
+```
+</CodeGroup>
+
+### Header Fields
+
+<ParamField path="fields.headers.defaultMode" type="string" default="drop">
+  Default action for headers: `keep`, `drop`, or `redact`.
+</ParamField>
+
+<ParamField path="fields.headers.names" type="object" default="{}">
+  Override specific header behavior: `keep`, `drop`, or `redact`.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  fields:
+    headers:
+      defaultMode: keep
+      names:
+        User-Agent: redact
+        Authorization: drop
+        Content-Type: keep
+        X-Custom-Header: keep
+```
+
+```toml TOML
+[accessLog.fields.headers]
+  defaultMode = "keep"
+  
+  [accessLog.fields.headers.names]
+    User-Agent = "redact"
+    Authorization = "drop"
+    Content-Type = "keep"
+    X-Custom-Header = "keep"
+```
+
+```bash CLI
+--accesslog.fields.headers.defaultmode=keep
+--accesslog.fields.headers.names.User-Agent=redact
+--accesslog.fields.headers.names.Authorization=drop
+--accesslog.fields.headers.names.Content-Type=keep
+```
+</CodeGroup>
+
+- `keep` - Include header value
+- `drop` - Exclude header completely
+- `redact` - Replace value with "REDACTED"
+
+## Available Fields
+
+Complete list of available fields in access logs:
+
+| Field | Description |
+|-------|-------------|
+| `StartUTC` | Request start time in UTC |
+| `StartLocal` | Request start time in local timezone |
+| `Duration` | Total processing time in nanoseconds |
+| `RouterName` | Traefik router name |
+| `ServiceName` | Traefik service name |
+| `ServiceURL` | Backend service URL |
+| `ServiceAddr` | Backend IP:port |
+| `ClientAddr` | Client address (IP:port) |
+| `ClientHost` | Client IP address |
+| `ClientPort` | Client TCP port |
+| `ClientUsername` | HTTP basic auth username |
+| `RequestAddr` | HTTP Host header (IP:port) |
+| `RequestHost` | HTTP Host (without port) |
+| `RequestPort` | HTTP Host port |
+| `RequestMethod` | HTTP method (GET, POST, etc.) |
+| `RequestPath` | Request URI path |
+| `RequestProtocol` | HTTP version |
+| `RequestScheme` | http or https |
+| `RequestLine` | Full request line |
+| `RequestContentSize` | Request body size in bytes |
+| `OriginDuration` | Upstream processing time |
+| `OriginContentSize` | Upstream response size |
+| `OriginStatus` | Upstream HTTP status |
+| `DownstreamStatus` | Status returned to client |
+| `DownstreamContentSize` | Response size to client |
+| `RequestCount` | Total requests since startup |
+| `GzipRatio` | Compression ratio |
+| `Overhead` | Traefik processing overhead |
+| `RetryAttempts` | Number of retries |
+| `TLSVersion` | TLS version (1.2, 1.3) |
+| `TLSCipher` | TLS cipher suite |
+| `TLSClientSubject` | Client certificate subject |
+| `TraceId` | Distributed trace ID (32-hex) |
+| `SpanId` | Root span ID (16-hex) |
+
+## Time Zones
+
+By default, timestamps use UTC. Configure local timezone:
+
+### Using Environment Variable
+
+<CodeGroup>
+```yaml Docker Compose
+services:
+  traefik:
+    image: traefik:v3.0
+    environment:
+      - TZ=America/New_York
+    command:
+      - --accesslog=true
+      - --accesslog.fields.names.StartUTC=drop
+```
+
+```bash CLI
+export TZ=America/New_York
+traefik --accesslog=true --accesslog.fields.names.StartUTC=drop
+```
+</CodeGroup>
+
+### Using Volume Mount
+
+```yaml
+services:
+  traefik:
+    image: traefik:v3.0
+    volumes:
+      - /usr/share/zoneinfo/America/New_York:/etc/localtime:ro
+    command:
+      - --accesslog=true
+      - --accesslog.fields.names.StartUTC=drop
+```
+
+<Note>
+Drop `StartUTC` and keep `StartLocal` to use local timestamps.
+</Note>
+
+## Log Rotation
+
+Traefik supports external log rotation using USR1 signal:
+
+```bash
+kill -USR1 <traefik-pid>
+```
+
+Example `logrotate` configuration:
+
+```
+/var/log/traefik/access.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    postrotate
+        killall -USR1 traefik
+    endscript
+}
+```
+
+<Note>
+**Windows Support**
+
+USR1 signal rotation is not supported on Windows.
+</Note>
+
+## OpenTelemetry Access Logs
+
+<Note>
+**Experimental Feature**
+
+OpenTelemetry access logs are currently experimental.
+</Note>
+
+### Enable Experimental Feature
+
+<CodeGroup>
+```yaml YAML
+experimental:
+  otlpLogs: true
+
+accessLog:
+  otlp:
+    serviceName: traefik-access
+    http:
+      endpoint: https://otel-collector:4318/v1/logs
+```
+
+```toml TOML
+[experimental]
+  otlpLogs = true
+
+[accessLog.otlp]
+  serviceName = "traefik-access"
+  
+  [accessLog.otlp.http]
+    endpoint = "https://otel-collector:4318/v1/logs"
+```
+
+```bash CLI
+--experimental.otlpLogs=true
+--accesslog.otlp=true
+--accesslog.otlp.serviceName=traefik-access
+--accesslog.otlp.http.endpoint=https://otel-collector:4318/v1/logs
+```
+</CodeGroup>
+
+### OTLP Configuration
+
+Same configuration options as Traefik logs:
+- `serviceName` - Service identifier
+- `resourceAttributes` - Additional attributes
+- `http` - HTTP protocol configuration
+- `grpc` - gRPC protocol configuration
+- `tls` - TLS settings
+
+See [Logs documentation](/observability/logs) for detailed OTLP configuration.
+
+## Complete Examples
+
+### Production Setup
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  format: json
+  filePath: /var/log/traefik/access.log
+  bufferingSize: 100
+  filters:
+    statusCodes:
+      - "400-599"
+    minDuration: 100ms
+  fields:
+    defaultMode: keep
+    names:
+      ClientUsername: drop
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+        X-Forwarded-For: keep
+        Authorization: drop
+        Cookie: drop
+```
+
+```toml TOML
+[accessLog]
+  format = "json"
+  filePath = "/var/log/traefik/access.log"
+  bufferingSize = 100
+  
+  [accessLog.filters]
+    statusCodes = ["400-599"]
+    minDuration = "100ms"
+  
+  [accessLog.fields]
+    defaultMode = "keep"
+    
+    [accessLog.fields.names]
+      ClientUsername = "drop"
+    
+    [accessLog.fields.headers]
+      defaultMode = "drop"
+      
+      [accessLog.fields.headers.names]
+        User-Agent = "keep"
+        X-Forwarded-For = "keep"
+        Authorization = "drop"
+        Cookie = "drop"
+```
+</CodeGroup>
+
+### Development Setup
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  format: common
+```
+
+```toml TOML
+[accessLog]
+  format = "common"
+```
+</CodeGroup>
+
+### High-Traffic Optimized
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  format: json
+  filePath: /var/log/traefik/access.log
+  bufferingSize: 1000
+  filters:
+    # Only log errors and slow requests
+    statusCodes:
+      - "500-599"
+    minDuration: 500ms
+  fields:
+    defaultMode: keep
+    names:
+      # Drop high-cardinality fields
+      RequestCount: drop
+      GzipRatio: drop
+    headers:
+      defaultMode: drop
+```
+
+```toml TOML
+[accessLog]
+  format = "json"
+  filePath = "/var/log/traefik/access.log"
+  bufferingSize = 1000
+  
+  [accessLog.filters]
+    statusCodes = ["500-599"]
+    minDuration = "500ms"
+  
+  [accessLog.fields]
+    defaultMode = "keep"
+    
+    [accessLog.fields.names]
+      RequestCount = "drop"
+      GzipRatio = "drop"
+    
+    [accessLog.fields.headers]
+      defaultMode = "drop"
+```
+</CodeGroup>
+
+### Security-Focused Logging
+
+<CodeGroup>
+```yaml YAML
+accessLog:
+  format: json
+  filePath: /var/log/traefik/access.log
+  filters:
+    # Log authentication failures and suspicious activity
+    statusCodes:
+      - "401"
+      - "403"
+      - "404"
+  fields:
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+        X-Forwarded-For: keep
+        X-Real-Ip: keep
+        # Redact sensitive headers
+        Authorization: redact
+        Cookie: redact
+        X-Api-Key: drop
+```
+
+```toml TOML
+[accessLog]
+  format = "json"
+  filePath = "/var/log/traefik/access.log"
+  
+  [accessLog.filters]
+    statusCodes = ["401", "403", "404"]
+  
+  [accessLog.fields.headers]
+    defaultMode = "drop"
+    
+    [accessLog.fields.headers.names]
+      User-Agent = "keep"
+      X-Forwarded-For = "keep"
+      X-Real-Ip = "keep"
+      Authorization = "redact"
+      Cookie = "redact"
+      X-Api-Key = "drop"
+```
+</CodeGroup>
+
+## Best Practices
+
+<Note>
+**Performance**
+- Use buffering for high-traffic deployments
+- Filter logs to reduce volume
+- Use JSON format for structured log processing
+- Avoid logging all headers (high overhead)
+</Note>
+
+<Note>
+**Security**
+- Drop or redact sensitive headers (Authorization, Cookie, API keys)
+- Don't log request/response bodies
+- Secure log files with appropriate permissions
+- Rotate logs regularly to prevent disk exhaustion
+</Note>
+
+<Note>
+**Monitoring**
+- Log errors and slow requests (use filters)
+- Include trace IDs for distributed tracing correlation
+- Monitor log file sizes
+- Integrate with log aggregation systems (ELK, Loki, etc.)
+</Note>

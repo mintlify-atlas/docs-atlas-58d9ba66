@@ -1,0 +1,110 @@
+---
+title: "TCP Middlewares Overview"
+description: "Overview of all available TCP middlewares in Traefik Proxy for controlling TCP connections."
+---
+
+# TCP Middlewares
+
+Controlling TCP Connections
+
+## Configuration Example
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+# As a Docker Label
+whoami:
+  image: traefik/whoami
+  labels:
+    # Create a middleware named `foo-ip-allowlist`
+    - "traefik.tcp.middlewares.foo-ip-allowlist.ipallowlist.sourcerange=127.0.0.1/32, 192.168.1.7"
+    # Apply the middleware named `foo-ip-allowlist` to the router named `router1`
+    - "traefik.tcp.routers.router1.middlewares=foo-ip-allowlist@docker"
+```
+
+```yaml Kubernetes
+---
+apiVersion: traefik.io/v1alpha1
+kind: MiddlewareTCP
+metadata:
+  name: foo-ip-allowlist
+spec:
+  ipAllowList:
+    sourcerange:
+      - 127.0.0.1/32
+      - 192.168.1.7
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: ingressroute
+spec:
+  routes:
+    - middlewares:
+        - name: foo-ip-allowlist
+```
+
+```yaml File (YAML)
+tcp:
+  routers:
+    router1:
+      service: myService
+      middlewares:
+        - "foo-ip-allowlist"
+      rule: "Host(`example.com`)"
+
+  middlewares:
+    foo-ip-allowlist:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "192.168.1.7"
+
+  services:
+    service1:
+      loadBalancer:
+        servers:
+          - address: "10.0.0.10:4000"
+          - address: "10.0.0.11:4000"
+```
+
+```toml File (TOML)
+[tcp.routers]
+  [tcp.routers.router1]
+    service = "myService"
+    middlewares = ["foo-ip-allowlist"]
+    rule = "Host(`example.com`)"
+
+[tcp.middlewares]
+  [tcp.middlewares.foo-ip-allowlist.ipAllowList]
+    sourceRange = ["127.0.0.1/32", "192.168.1.7"]
+
+[tcp.services]
+  [tcp.services.service1]
+    [tcp.services.service1.loadBalancer]
+      [[tcp.services.service1.loadBalancer.servers]]
+        address = "10.0.0.10:4000"
+      [[tcp.services.service1.loadBalancer.servers]]
+        address = "10.0.0.11:4000"
+```
+
+</CodeGroup>
+
+## Available TCP Middlewares
+
+| Middleware | Purpose | Area |
+|------------|---------|------|
+| InFlightConn | Limits simultaneous connections | Security, Request lifecycle |
+| IPAllowList | Limit allowed client IPs | Security, Request lifecycle |
+
+## TCP vs HTTP Middlewares
+
+TCP middlewares operate at the transport layer (Layer 4) and have different capabilities compared to HTTP middlewares:
+
+- **TCP middlewares** work with raw TCP connections
+- **HTTP middlewares** can inspect and modify HTTP requests/responses
+
+<Note>
+TCP middlewares cannot inspect HTTP-specific data like headers, methods, or paths. For HTTP traffic, use HTTP middlewares instead.
+</Note>

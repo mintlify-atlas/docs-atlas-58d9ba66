@@ -1,0 +1,662 @@
+---
+title: "ACME (Let's Encrypt)"
+description: "Configure automatic HTTPS certificate generation with Let's Encrypt and other ACME providers in Traefik."
+---
+
+# ACME (Let's Encrypt)
+
+Traefik can automatically generate and renew TLS certificates from ACME providers like Let's Encrypt, enabling zero-configuration HTTPS.
+
+<Warning>
+  Let's Encrypt has [rate limits](https://letsencrypt.org/docs/rate-limits) that last up to one week and cannot be overridden. Use the staging server during development to avoid hitting these limits.
+</Warning>
+
+## Certificate Resolvers
+
+Certificate resolvers are defined in the static configuration and handle certificate retrieval from ACME servers:
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: your-email@example.com
+      storage: acme.json
+      caServer: https://acme-v02.api.letsencrypt.org/directory
+      # Choose one challenge type:
+      httpChallenge:
+        entryPoint: web
+```
+
+```toml TOML
+[certificatesResolvers.myresolver.acme]
+  email = "your-email@example.com"
+  storage = "acme.json"
+  caServer = "https://acme-v02.api.letsencrypt.org/directory"
+  [certificatesResolvers.myresolver.acme.httpChallenge]
+    entryPoint = "web"
+```
+
+```bash CLI
+--certificatesresolvers.myresolver.acme.email=your-email@example.com
+--certificatesresolvers.myresolver.acme.storage=acme.json
+--certificatesresolvers.myresolver.acme.caserver=https://acme-v02.api.letsencrypt.org/directory
+--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web
+```
+</CodeGroup>
+
+<Note>
+  Defining a certificate resolver does not automatically apply it to all routers. Each router must explicitly reference the resolver using `tls.certResolver`.
+</Note>
+
+## Configuration Options
+
+### Required Options
+
+| Option | Description | Example |
+|--------|-------------|----------|
+| `email` | Email address for registration and recovery contact | `admin@example.com` |
+| `storage` | File path to store ACME data and certificates | `acme.json` or `/acme/acme.json` |
+| Challenge | One of: `httpChallenge`, `tlsChallenge`, or `dnsChallenge` | See challenge sections below |
+
+### Optional Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `caServer` | Let's Encrypt Production | ACME server URL |
+| `keyType` | `RSA4096` | Certificate key type: `EC256`, `EC384`, `RSA2048`, `RSA4096`, `RSA8192` |
+| `certificatesDuration` | `2160` (90 days) | Certificate duration in hours |
+| `preferredChain` | - | Preferred certificate chain to use |
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: admin@example.com
+      storage: acme.json
+      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+      keyType: EC384
+      certificatesDuration: 2160
+      tlsChallenge: {}
+```
+
+```toml TOML
+[certificatesResolvers.myresolver.acme]
+  email = "admin@example.com"
+  storage = "acme.json"
+  caServer = "https://acme-staging-v02.api.letsencrypt.org/directory"
+  keyType = "EC384"
+  certificatesDuration = 2160
+  [certificatesResolvers.myresolver.acme.tlsChallenge]
+```
+</CodeGroup>
+
+## ACME Challenges
+
+ACME providers use challenges to verify domain ownership. You must configure exactly one challenge type.
+
+### HTTP-01 Challenge
+
+The HTTP-01 challenge provisions an HTTP resource to verify domain ownership.
+
+<Steps>
+  <Step title="Requirements">
+    Port 80 must be reachable by Let's Encrypt servers.
+  </Step>
+  
+  <Step title="Advantages">
+    - Works with standard HTTP
+    - Easy to set up
+    - Compatible with HTTP redirects
+  </Step>
+  
+  <Step title="Limitations">
+    - Cannot issue wildcard certificates
+    - Requires port 80 to be accessible
+  </Step>
+</Steps>
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: your-email@example.com
+      storage: acme.json
+      httpChallenge:
+        entryPoint: web
+```
+
+```toml TOML
+[certificatesResolvers.myresolver.acme]
+  email = "your-email@example.com"
+  storage = "acme.json"
+  [certificatesResolvers.myresolver.acme.httpChallenge]
+    entryPoint = "web"
+```
+
+```bash CLI
+--certificatesresolvers.myresolver.acme.email=your-email@example.com
+--certificatesresolvers.myresolver.acme.storage=acme.json
+--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web
+```
+</CodeGroup>
+
+### TLS-ALPN-01 Challenge
+
+The TLS-ALPN-01 challenge uses TLS with the ALPN extension to verify domain ownership.
+
+<Steps>
+  <Step title="Requirements">
+    Port 443 must be reachable by Let's Encrypt servers.
+  </Step>
+  
+  <Step title="Advantages">
+    - Works on port 443
+    - No need for port 80
+    - Fast validation
+  </Step>
+  
+  <Step title="Limitations">
+    - Cannot issue wildcard certificates
+    - Requires port 443 to be accessible
+  </Step>
+</Steps>
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: your-email@example.com
+      storage: acme.json
+      tlsChallenge: {}
+```
+
+```toml TOML
+[certificatesResolvers.myresolver.acme]
+  email = "your-email@example.com"
+  storage = "acme.json"
+  [certificatesResolvers.myresolver.acme.tlsChallenge]
+```
+
+```bash CLI
+--certificatesresolvers.myresolver.acme.email=your-email@example.com
+--certificatesresolvers.myresolver.acme.storage=acme.json
+--certificatesresolvers.myresolver.acme.tlschallenge=true
+```
+</CodeGroup>
+
+### DNS-01 Challenge
+
+The DNS-01 challenge provisions a DNS TXT record to verify domain ownership.
+
+<Steps>
+  <Step title="Requirements">
+    Access to DNS provider API and credentials.
+  </Step>
+  
+  <Step title="Advantages">
+    - Supports wildcard certificates
+    - No ports need to be publicly accessible
+    - Works behind firewalls
+  </Step>
+  
+  <Step title="Limitations">
+    - Requires DNS provider integration
+    - Slower validation process
+  </Step>
+</Steps>
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: your-email@example.com
+      storage: acme.json
+      dnsChallenge:
+        provider: cloudflare
+        resolvers:
+          - "1.1.1.1:53"
+          - "8.8.8.8:53"
+```
+
+```toml TOML
+[certificatesResolvers.myresolver.acme]
+  email = "your-email@example.com"
+  storage = "acme.json"
+  [certificatesResolvers.myresolver.acme.dnsChallenge]
+    provider = "cloudflare"
+    resolvers = ["1.1.1.1:53", "8.8.8.8:53"]
+```
+
+```bash CLI
+--certificatesresolvers.myresolver.acme.email=your-email@example.com
+--certificatesresolvers.myresolver.acme.storage=acme.json
+--certificatesresolvers.myresolver.acme.dnschallenge.provider=cloudflare
+--certificatesresolvers.myresolver.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53
+```
+</CodeGroup>
+
+#### Popular DNS Providers
+
+<Tabs>
+  <Tab title="Cloudflare">
+    ```bash
+    # Environment variables
+    CF_DNS_API_TOKEN=your-api-token
+    # or
+    CF_API_EMAIL=your-email@example.com
+    CF_API_KEY=your-api-key
+    ```
+    
+    ```yaml
+    dnsChallenge:
+      provider: cloudflare
+    ```
+  </Tab>
+  
+  <Tab title="AWS Route53">
+    ```bash
+    # Environment variables
+    AWS_ACCESS_KEY_ID=your-access-key
+    AWS_SECRET_ACCESS_KEY=your-secret-key
+    AWS_REGION=us-east-1
+    ```
+    
+    ```yaml
+    dnsChallenge:
+      provider: route53
+    ```
+  </Tab>
+  
+  <Tab title="Google Cloud DNS">
+    ```bash
+    # Environment variables
+    GCE_PROJECT=your-project-id
+    GCE_SERVICE_ACCOUNT_FILE=/path/to/service-account.json
+    ```
+    
+    ```yaml
+    dnsChallenge:
+      provider: gcloud
+    ```
+  </Tab>
+  
+  <Tab title="DigitalOcean">
+    ```bash
+    # Environment variables
+    DO_AUTH_TOKEN=your-auth-token
+    ```
+    
+    ```yaml
+    dnsChallenge:
+      provider: digitalocean
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  See the [lego documentation](https://go-acme.github.io/lego/dns/) for a complete list of supported DNS providers and required environment variables.
+</Note>
+
+## Domain Configuration
+
+### Single Domain from Router Rule
+
+Traefik automatically extracts the domain from the `Host()` matcher:
+
+<CodeGroup>
+```yaml YAML
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`)"
+      service: my-service
+      tls:
+        certResolver: myresolver
+```
+
+```toml TOML
+[http.routers.my-router]
+  rule = "Host(`example.com`)"
+  service = "my-service"
+  [http.routers.my-router.tls]
+    certResolver = "myresolver"
+```
+</CodeGroup>
+
+### Multiple Domains (SANs)
+
+Multiple `Host()` matchers create a single certificate with Subject Alternative Names:
+
+<CodeGroup>
+```yaml YAML
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`) || Host(`www.example.com`)"
+      service: my-service
+      tls:
+        certResolver: myresolver
+```
+
+```toml TOML
+[http.routers.my-router]
+  rule = "Host(`example.com`) || Host(`www.example.com`)"
+  service = "my-service"
+  [http.routers.my-router.tls]
+    certResolver = "myresolver"
+```
+</CodeGroup>
+
+### Explicit Domain Configuration
+
+Specify domains explicitly using `tls.domains`:
+
+<CodeGroup>
+```yaml YAML
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`)"
+      service: my-service
+      tls:
+        certResolver: myresolver
+        domains:
+          - main: example.com
+            sans:
+              - www.example.com
+              - admin.example.com
+```
+
+```toml TOML
+[http.routers.my-router]
+  rule = "Host(`example.com`)"
+  service = "my-service"
+  [http.routers.my-router.tls]
+    certResolver = "myresolver"
+    [[http.routers.my-router.tls.domains]]
+      main = "example.com"
+      sans = ["www.example.com", "admin.example.com"]
+```
+</CodeGroup>
+
+### Wildcard Certificates
+
+Wildcard certificates require DNS-01 challenge:
+
+<CodeGroup>
+```yaml YAML
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`) || HostRegexp(`{subdomain:[a-z]+}.example.com`)"
+      service: my-service
+      tls:
+        certResolver: myresolver
+        domains:
+          - main: "*.example.com"
+            sans:
+              - example.com
+```
+
+```toml TOML
+[http.routers.my-router]
+  rule = "Host(`example.com`) || HostRegexp(`{subdomain:[a-z]+}.example.com`)"
+  service = "my-service"
+  [http.routers.my-router.tls]
+    certResolver = "myresolver"
+    [[http.routers.my-router.tls.domains]]
+      main = "*.example.com"
+      sans = ["example.com"]
+```
+</CodeGroup>
+
+<Warning>
+  Wildcard certificates (`*.example.com`) do **not** cover the root domain (`example.com`). Add the root domain as a SAN if needed.
+</Warning>
+
+## Automatic Renewals
+
+Traefik automatically renews certificates before they expire:
+
+- **Default certificate duration**: 90 days (2160 hours)
+- **Default renewal period**: 30 days before expiration
+- **Renewal check interval**: Daily
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: your-email@example.com
+      storage: acme.json
+      certificatesDuration: 2160  # 90 days
+      tlsChallenge: {}
+```
+
+```toml TOML
+[certificatesResolvers.myresolver.acme]
+  email = "your-email@example.com"
+  storage = "acme.json"
+  certificatesDuration = 2160  # 90 days
+  [certificatesResolvers.myresolver.acme.tlsChallenge]
+```
+</CodeGroup>
+
+<Note>
+  Traefik renews all certificates, even those no longer in use. This behavior may change in future versions.
+</Note>
+
+## Storage Configuration
+
+The `storage` option specifies where ACME data is persisted:
+
+<Tabs>
+  <Tab title="Local File">
+    ```yaml
+    acme:
+      storage: acme.json
+    ```
+    
+    <Warning>
+      When running in Docker, mount this file as a volume to persist data across container restarts.
+    </Warning>
+  </Tab>
+  
+  <Tab title="Docker Volume">
+    ```yaml
+    # docker-compose.yml
+    services:
+      traefik:
+        image: traefik:v3.0
+        volumes:
+          - ./acme:/acme
+        command:
+          - --certificatesresolvers.myresolver.acme.storage=/acme/acme.json
+    ```
+  </Tab>
+  
+  <Tab title="Kubernetes">
+    ```yaml
+    # Use a PersistentVolumeClaim
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: acme-storage
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+    ```
+  </Tab>
+</Tabs>
+
+## External Account Binding (EAB)
+
+Some ACME providers require External Account Binding:
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: your-email@example.com
+      storage: acme.json
+      caServer: https://acme.example.com/directory
+      eab:
+        kid: key-identifier
+        hmacEncoded: base64-encoded-hmac-key
+      tlsChallenge: {}
+```
+
+```toml TOML
+[certificatesResolvers.myresolver.acme]
+  email = "your-email@example.com"
+  storage = "acme.json"
+  caServer = "https://acme.example.com/directory"
+  [certificatesResolvers.myresolver.acme.eab]
+    kid = "key-identifier"
+    hmacEncoded = "base64-encoded-hmac-key"
+  [certificatesResolvers.myresolver.acme.tlsChallenge]
+```
+</CodeGroup>
+
+## Testing with Let's Encrypt Staging
+
+Always test with the Let's Encrypt staging environment first:
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  staging:
+    acme:
+      email: your-email@example.com
+      storage: acme-staging.json
+      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+      tlsChallenge: {}
+```
+
+```toml TOML
+[certificatesResolvers.staging.acme]
+  email = "your-email@example.com"
+  storage = "acme-staging.json"
+  caServer = "https://acme-staging-v02.api.letsencrypt.org/directory"
+  [certificatesResolvers.staging.acme.tlsChallenge]
+```
+</CodeGroup>
+
+<Warning>
+  The staging environment issues certificates from a fake CA. Browsers will show security warnings. Use staging only for testing.
+</Warning>
+
+## Advanced Configuration
+
+### DNS Propagation Settings
+
+Control DNS propagation checks for DNS-01 challenge:
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: your-email@example.com
+      storage: acme.json
+      dnsChallenge:
+        provider: cloudflare
+        propagation:
+          delayBeforeChecks: 30s
+          disableANSChecks: false
+          requireAllRNS: false
+```
+
+```toml TOML
+[certificatesResolvers.myresolver.acme]
+  email = "your-email@example.com"
+  storage = "acme.json"
+  [certificatesResolvers.myresolver.acme.dnsChallenge]
+    provider = "cloudflare"
+    [certificatesResolvers.myresolver.acme.dnsChallenge.propagation]
+      delayBeforeChecks = "30s"
+      disableANSChecks = false
+      requireAllRNS = false
+```
+</CodeGroup>
+
+### Custom CA Certificates
+
+Use custom CA certificates for private ACME servers:
+
+<CodeGroup>
+```yaml YAML
+certificatesResolvers:
+  myresolver:
+    acme:
+      email: your-email@example.com
+      storage: acme.json
+      caServer: https://acme.internal.example.com/directory
+      caCertificates:
+        - /path/to/ca-cert.pem
+```
+
+```toml TOML
+[certificatesResolvers.myresolver.acme]
+  email = "your-email@example.com"
+  storage = "acme.json"
+  caServer = "https://acme.internal.example.com/directory"
+  caCertificates = ["/path/to/ca-cert.pem"]
+```
+</CodeGroup>
+
+## Troubleshooting
+
+### Rate Limit Errors
+
+<Steps>
+  <Step title="Check Rate Limits">
+    Let's Encrypt has limits on certificates per domain (50/week) and failed validation attempts (5/hour).
+  </Step>
+  
+  <Step title="Use Staging">
+    Test with the staging server which has higher rate limits.
+  </Step>
+  
+  <Step title="Persist Storage">
+    Ensure `acme.json` persists across restarts to avoid re-requesting certificates.
+  </Step>
+</Steps>
+
+### Challenge Failures
+
+<Tabs>
+  <Tab title="HTTP-01">
+    - Verify port 80 is accessible from the internet
+    - Check firewall rules
+    - Ensure the entryPoint is correctly configured
+  </Tab>
+  
+  <Tab title="TLS-ALPN-01">
+    - Verify port 443 is accessible from the internet
+    - Check firewall rules
+    - Ensure no other process is using port 443
+  </Tab>
+  
+  <Tab title="DNS-01">
+    - Verify DNS provider credentials
+    - Check DNS propagation with `dig` or `nslookup`
+    - Increase `delayBeforeChecks` if propagation is slow
+  </Tab>
+</Tabs>
+
+<Note>
+  Enable debug logging to see detailed ACME challenge information:
+  ```bash
+  --log.level=DEBUG
+  ```
+</Note>

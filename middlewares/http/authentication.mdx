@@ -1,0 +1,267 @@
+---
+title: "Authentication Middleware"
+description: "Secure your services with BasicAuth, DigestAuth, and ForwardAuth authentication middlewares in Traefik Proxy."
+---
+
+# Authentication Middleware
+
+Restricting Access to Your Services
+
+Traefik provides three types of authentication middlewares to restrict access to your services:
+
+- **BasicAuth** - HTTP Basic Authentication
+- **DigestAuth** - HTTP Digest Authentication  
+- **ForwardAuth** - Delegate authentication to an external service
+
+## BasicAuth
+
+The BasicAuth middleware grants access to services to authorized users only using HTTP Basic Authentication.
+
+### Configuration Examples
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+# Declaring the user list
+# Note: when used in docker-compose.yml all dollar signs in the hash need to be doubled for escaping.
+# To create user:password pair, use:
+# echo $(htpasswd -nB user) | sed -e s/\\$/\\$\\$/g
+labels:
+  - "traefik.http.middlewares.test-auth.basicauth.users=test:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/,test2:$$apr1$$d9hr9HBB$$4HxwgUir3HP4EsggP/QNo0"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-auth
+spec:
+  basicAuth:
+    secret: secretName
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-auth:
+      basicAuth:
+        users:
+          - "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+          - "test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0"
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-auth.basicAuth]
+    users = [
+      "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/",
+      "test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
+    ]
+```
+
+</CodeGroup>
+
+### Configuration Options
+
+<ParamField path="users" type="array">
+  Array of authorized users in `name:hashed-password` format. Passwords must be hashed using MD5, SHA1, or BCrypt.
+  
+  <Note>Use `htpasswd` to generate passwords.</Note>
+</ParamField>
+
+<ParamField path="usersFile" type="string">
+  Path to an external file containing authorized users (one per line in `name:hashed-password` format).
+</ParamField>
+
+<ParamField path="realm" type="string" default="traefik">
+  Realm for the authentication.
+</ParamField>
+
+<ParamField path="headerField" type="string">
+  Header field to store the authenticated user.
+</ParamField>
+
+<ParamField path="removeHeader" type="boolean" default="false">
+  Remove the authorization header before forwarding the request to your service.
+</ParamField>
+
+## DigestAuth
+
+The DigestAuth middleware grants access to services using HTTP Digest Authentication.
+
+### Configuration Examples
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.test-auth.digestauth.users=test:traefik:a2688e031edb4be6a3797f3882655c05,test2:traefik:518845800f9e2bfb1f1f740ec24f074e"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-auth
+spec:
+  digestAuth:
+    secret: userssecret
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-auth:
+      digestAuth:
+        users:
+          - "test:traefik:a2688e031edb4be6a3797f3882655c05"
+          - "test2:traefik:518845800f9e2bfb1f1f740ec24f074e"
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-auth.digestAuth]
+    users = [
+      "test:traefik:a2688e031edb4be6a3797f3882655c05",
+      "test2:traefik:518845800f9e2bfb1f1f740ec24f074e",
+    ]
+```
+
+</CodeGroup>
+
+<Note>Use `htdigest` to generate passwords.</Note>
+
+### Configuration Options
+
+<ParamField path="users" type="array">
+  Array of authorized users in `name:realm:encoded-password` format.
+</ParamField>
+
+<ParamField path="usersFile" type="string">
+  Path to an external file containing authorized users.
+</ParamField>
+
+<ParamField path="realm" type="string" default="traefik">
+  Realm for the authentication.
+</ParamField>
+
+<ParamField path="headerField" type="string">
+  Header field to store the authenticated user.
+</ParamField>
+
+<ParamField path="removeHeader" type="boolean" default="false">
+  Remove the authorization header before forwarding the request.
+</ParamField>
+
+## ForwardAuth
+
+The ForwardAuth middleware delegates authentication to an external service. If the service responds with a 2XX code, access is granted and the original request is performed. Otherwise, the response from the authentication server is returned.
+
+### Configuration Examples
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.test-auth.forwardauth.address=https://example.com/auth"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-auth
+spec:
+  forwardAuth:
+    address: https://example.com/auth
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-auth:
+      forwardAuth:
+        address: "https://example.com/auth"
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-auth.forwardAuth]
+    address = "https://example.com/auth"
+```
+
+</CodeGroup>
+
+### Forward-Request Headers
+
+The following request properties are provided to the forward-auth target endpoint:
+
+| Property | Header |
+|----------|--------|
+| HTTP Method | `X-Forwarded-Method` |
+| Protocol | `X-Forwarded-Proto` |
+| Host | `X-Forwarded-Host` |
+| Request URI | `X-Forwarded-Uri` |
+| Source IP | `X-Forwarded-For` |
+
+### Configuration Options
+
+<ParamField path="address" type="string" required>
+  Authentication server address.
+</ParamField>
+
+<ParamField path="trustForwardHeader" type="boolean" default="false">
+  Trust all `X-Forwarded-*` headers.
+</ParamField>
+
+<ParamField path="authResponseHeaders" type="array">
+  List of headers to copy from the authentication server response and set on forwarded request.
+</ParamField>
+
+<ParamField path="authResponseHeadersRegex" type="string">
+  Regex to match headers to copy from the authentication server response.
+</ParamField>
+
+## Chaining Authentication
+
+You can combine authentication middleware with other middlewares:
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`)"
+      service: my-service
+      middlewares:
+        - test-auth
+        - rate-limit
+
+  middlewares:
+    test-auth:
+      basicAuth:
+        users:
+          - "user:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+    
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+```
+
+```toml File (TOML)
+[http.routers.my-router]
+  rule = "Host(`example.com`)"
+  service = "my-service"
+  middlewares = ["test-auth", "rate-limit"]
+
+[http.middlewares.test-auth.basicAuth]
+  users = ["user:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"]
+
+[http.middlewares.rate-limit.rateLimit]
+  average = 100
+  burst = 50
+```
+
+</CodeGroup>

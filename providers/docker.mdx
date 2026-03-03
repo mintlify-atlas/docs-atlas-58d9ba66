@@ -1,0 +1,457 @@
+---
+title: 'Docker Provider'
+description: 'Configure Traefik with Docker using container labels for automatic service discovery and routing.'
+---
+
+# Docker Provider
+
+A Story of Labels & Containers
+
+Attach labels to your Docker containers and let Traefik automatically discover and route traffic to your services. The Docker provider works with [Docker standalone Engine](https://docs.docker.com/engine/) and monitors container events in real-time.
+
+## Quick Start
+
+<Steps>
+  <Step title="Enable Docker Provider">
+    Add Docker provider to your Traefik configuration:
+    
+    <CodeGroup>
+    ```yaml traefik.yml
+    providers:
+      docker:
+        endpoint: "unix:///var/run/docker.sock"
+        exposedByDefault: true
+    ```
+    
+    ```toml traefik.toml
+    [providers.docker]
+      endpoint = "unix:///var/run/docker.sock"
+      exposedByDefault = true
+    ```
+    
+    ```bash CLI
+    --providers.docker=true
+    --providers.docker.endpoint=unix:///var/run/docker.sock
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Add Labels to Containers">
+    Define routing rules using Docker labels:
+    
+    ```yaml docker-compose.yml
+    services:
+      whoami:
+        image: traefik/whoami
+        labels:
+          - "traefik.http.routers.whoami.rule=Host(`whoami.example.com`)"
+          - "traefik.http.services.whoami.loadbalancer.server.port=80"
+    ```
+  </Step>
+  
+  <Step title="Deploy and Access">
+    Start your services:
+    
+    ```bash
+    docker-compose up -d
+    ```
+    
+    Traefik automatically detects the container and creates routes!
+  </Step>
+</Steps>
+
+## Complete Example
+
+<CodeGroup>
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v3.6
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./traefik.yml:/etc/traefik/traefik.yml"
+    
+  my-app:
+    image: my-application:latest
+    labels:
+      # Router configuration
+      - "traefik.enable=true"
+      - "traefik.http.routers.my-app.rule=Host(`app.example.com`)"
+      - "traefik.http.routers.my-app.entrypoints=websecure"
+      - "traefik.http.routers.my-app.tls=true"
+      
+      # Service configuration
+      - "traefik.http.services.my-app.loadbalancer.server.port=8080"
+      
+      # Middleware
+      - "traefik.http.routers.my-app.middlewares=my-auth"
+      - "traefik.http.middlewares.my-auth.basicauth.users=admin:$$apr1$$..."
+```
+
+```yaml traefik.yml
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    watch: true
+    exposedByDefault: false
+    network: web
+```
+</CodeGroup>
+
+## How It Works
+
+### Port Detection
+
+Traefik automatically detects which port to use:
+
+1. **Single exposed port**: Traefik uses that port
+2. **Multiple exposed ports**: Traefik uses the lowest port (e.g., 80 over 8080)
+3. **No exposed ports or manual override needed**: Use the label:
+
+```yaml
+labels:
+  - "traefik.http.services.<service-name>.loadbalancer.server.port=8080"
+```
+
+### Docker API Access
+
+<Warning>
+  **Security Alert**: Accessing the Docker socket gives Traefik full control over Docker. Only deploy Traefik in trusted environments.
+</Warning>
+
+Traefik requires access to the Docker socket to discover containers. You have several connection options:
+
+<Tabs>
+  <Tab title="Unix Socket">
+    ```yaml
+    services:
+      traefik:
+        image: traefik:v3.6
+        volumes:
+          - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    ```
+    
+    ```yaml
+    providers:
+      docker:
+        endpoint: "unix:///var/run/docker.sock"
+    ```
+  </Tab>
+  
+  <Tab title="TCP">
+    ```yaml
+    providers:
+      docker:
+        endpoint: "tcp://192.168.1.10:2375"
+    ```
+  </Tab>
+  
+  <Tab title="SSH">
+    ```yaml
+    providers:
+      docker:
+        endpoint: "ssh://traefik@192.168.1.10:22"
+    ```
+    
+    Requires Docker 18.09+ and SSH key authentication.
+  </Tab>
+</Tabs>
+
+<Note>
+  **Recommended**: Use [Docker Socket Proxy](https://github.com/Tecnativa/docker-socket-proxy) to limit Traefik's access to only necessary Docker API endpoints.
+</Note>
+
+## Provider Configuration
+
+### endpoint
+
+_Default: `unix:///var/run/docker.sock`_
+
+Docker daemon socket to connect to.
+
+```yaml
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+```
+
+### exposedByDefault
+
+_Default: `true`_
+
+Expose all containers by default. Set to `false` to require explicit `traefik.enable=true` label.
+
+```yaml
+providers:
+  docker:
+    exposedByDefault: false
+```
+
+<CodeGroup>
+```yaml Enable Required
+# With exposedByDefault: false
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.app.rule=Host(`example.com`)"
+```
+
+```yaml Auto-Exposed
+# With exposedByDefault: true
+labels:
+  - "traefik.http.routers.app.rule=Host(`example.com`)"
+```
+</CodeGroup>
+
+### network
+
+_Default: `""`_
+
+Default Docker network for container connections.
+
+```yaml
+providers:
+  docker:
+    network: "web"
+```
+
+Override per-container:
+
+```yaml
+labels:
+  - "traefik.docker.network=custom-network"
+```
+
+### watch
+
+_Default: `true`_
+
+Watch for Docker events and update configuration automatically.
+
+```yaml
+providers:
+  docker:
+    watch: true
+```
+
+### constraints
+
+_Default: `""`_
+
+Filter containers based on label expressions.
+
+<CodeGroup>
+```yaml Production Only
+providers:
+  docker:
+    constraints: "Label(`environment`, `production`)"
+```
+
+```yaml Multiple Constraints
+providers:
+  docker:
+    constraints: "Label(`environment`, `production`) && Label(`team`, `backend`)"
+```
+
+```yaml Regex
+providers:
+  docker:
+    constraints: "LabelRegex(`version`, `v[0-9]+`)"
+```
+</CodeGroup>
+
+### defaultRule
+
+_Default: ``Host(`{{ normalize .Name }}`)``_
+
+Default routing rule template for containers without explicit rules.
+
+```yaml
+providers:
+  docker:
+    defaultRule: "Host(`{{ .Name }}.{{ index .Labels \"domain\" }}`)"
+```
+
+### useBindPortIP
+
+_Default: `false`_
+
+Use the IP/Port from the container's port binding instead of the internal IP.
+
+```yaml
+providers:
+  docker:
+    useBindPortIP: true
+```
+
+### TLS Configuration
+
+Secure connection to Docker daemon:
+
+```yaml
+providers:
+  docker:
+    endpoint: "tcp://docker-host:2376"
+    tls:
+      ca: "/path/to/ca.crt"
+      cert: "/path/to/cert.crt"
+      key: "/path/to/key.key"
+      insecureSkipVerify: false
+```
+
+### allowEmptyServices
+
+_Default: `false`_
+
+Allow load balancers with no healthy containers (returns 503 instead of 404).
+
+```yaml
+providers:
+  docker:
+    allowEmptyServices: true
+```
+
+## Common Patterns
+
+### Multi-Domain Application
+
+```yaml
+services:
+  app:
+    image: my-app
+    labels:
+      # Main domain
+      - "traefik.http.routers.app.rule=Host(`example.com`)"
+      
+      # API subdomain
+      - "traefik.http.routers.app-api.rule=Host(`api.example.com`)"
+      - "traefik.http.routers.app-api.service=app"
+      
+      # Service port
+      - "traefik.http.services.app.loadbalancer.server.port=3000"
+```
+
+### Path-Based Routing
+
+```yaml
+labels:
+  - "traefik.http.routers.app.rule=Host(`example.com`) && PathPrefix(`/api`)"
+  - "traefik.http.middlewares.app-stripprefix.stripprefix.prefixes=/api"
+  - "traefik.http.routers.app.middlewares=app-stripprefix"
+```
+
+### HTTPS with Let's Encrypt
+
+```yaml
+labels:
+  - "traefik.http.routers.app.rule=Host(`example.com`)"
+  - "traefik.http.routers.app.entrypoints=websecure"
+  - "traefik.http.routers.app.tls.certresolver=letsencrypt"
+```
+
+### Load Balancing Multiple Containers
+
+```yaml
+services:
+  app:
+    image: my-app
+    deploy:
+      replicas: 3
+    labels:
+      - "traefik.http.routers.app.rule=Host(`example.com`)"
+      - "traefik.http.services.app.loadbalancer.server.port=8080"
+```
+
+Traefik automatically load balances across all replicas.
+
+## Host Networking
+
+When using Docker's host network mode:
+
+```yaml
+services:
+  app:
+    network_mode: host
+```
+
+Traefik resolves the host IP in this order:
+1. `host.docker.internal`
+2. `host.containers.internal` (Podman)
+3. `127.0.0.1`
+
+<Note>
+  On Linux with Docker < 20.10, add `--add-host=host.docker.internal:172.17.0.1` to the Traefik container.
+</Note>
+
+## Troubleshooting
+
+### Service Not Detected
+
+<Steps>
+  <Step title="Check exposedByDefault">
+    If `exposedByDefault: false`, ensure `traefik.enable=true` label is set.
+  </Step>
+  
+  <Step title="Verify Docker Socket">
+    ```bash
+    docker exec traefik ls -la /var/run/docker.sock
+    ```
+  </Step>
+  
+  <Step title="Check Constraints">
+    Ensure container labels match any configured constraints.
+  </Step>
+  
+  <Step title="Review Traefik Logs">
+    ```bash
+    docker logs traefik
+    ```
+  </Step>
+</Steps>
+
+### Port Issues
+
+```yaml
+# Explicitly set the port
+labels:
+  - "traefik.http.services.myapp.loadbalancer.server.port=8080"
+```
+
+### Network Connectivity
+
+```yaml
+# Specify the Docker network
+labels:
+  - "traefik.docker.network=my-network"
+```
+
+## Security Best Practices
+
+<Warning>
+  Never expose the Docker socket to untrusted containers. Consider using:
+  - Docker Socket Proxy
+  - SSH connection with key authentication
+  - TCP with TLS client certificates
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Labels Reference" icon="tag" href="/routing/providers/docker">
+    Complete list of Docker labels for routers, services, and middleware
+  </Card>
+  <Card title="Docker Swarm" icon="layer-group" href="/providers/swarm">
+    Deploy Traefik in Docker Swarm mode
+  </Card>
+</CardGroup>

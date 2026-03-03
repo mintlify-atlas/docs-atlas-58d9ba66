@@ -1,122 +1,143 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Traefik",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#37BEC8",
+    "light": "#5DD3DC",
+    "dark": "#24ABB5"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/traefik/traefik"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/traefik/traefik"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Getting Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "concepts",
+              "install"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Configuration",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "configuration/overview",
+              "configuration/entrypoints",
+              "configuration/routers",
+              "configuration/services",
+              "configuration/providers"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Providers",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "providers/overview",
+              "providers/docker",
+              "providers/kubernetes",
+              "providers/kubernetes-crd",
+              "providers/kubernetes-gateway",
+              "providers/file",
+              "providers/consul",
+              "providers/etcd",
+              "providers/ecs",
+              "providers/nomad"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Routing",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "routing/overview",
+              "routing/routers",
+              "routing/services",
+              "routing/entrypoints"
+            ]
+          },
+          {
+            "group": "Middlewares",
+            "pages": [
+              "middlewares/overview",
+              "middlewares/http/overview",
+              "middlewares/http/authentication",
+              "middlewares/http/headers",
+              "middlewares/http/ratelimit",
+              "middlewares/http/redirectscheme",
+              "middlewares/http/stripprefix",
+              "middlewares/http/compress",
+              "middlewares/http/circuitbreaker",
+              "middlewares/tcp/overview"
+            ]
+          },
+          {
+            "group": "HTTPS & TLS",
+            "pages": [
+              "https/overview",
+              "https/acme",
+              "https/tls"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "observability/overview",
+              "observability/logs",
+              "observability/metrics",
+              "observability/tracing",
+              "observability/access-logs"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/deployment",
+              "operations/cli",
+              "operations/api",
+              "operations/dashboard",
+              "operations/ping"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Advanced",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Plugins",
             "pages": [
-              "api-reference/introduction"
+              "plugins/overview",
+              "plugins/usage"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Migration",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "migration/v2-to-v3",
+              "migration/guide"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/overview",
+              "contributing/building",
+              "contributing/guidelines"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

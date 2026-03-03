@@ -1,0 +1,305 @@
+---
+title: 'Configuration Overview'
+description: 'Learn about Traefik configuration fundamentals including static vs dynamic configuration, file formats, and configuration discovery.'
+---
+
+# Configuration Overview
+
+Understanding Traefik's Configuration Model
+
+Traefik uses a dual configuration model that separates startup configuration from runtime routing configuration. This separation enables dynamic updates without service restarts.
+
+## Static vs Dynamic Configuration
+
+### Static Configuration
+
+Static configuration defines Traefik's startup behavior and cannot be changed without restarting Traefik. It includes:
+
+- **EntryPoints** - Network ports where Traefik listens for incoming traffic
+- **Providers** - Sources from which Traefik discovers dynamic configuration
+- **API and Dashboard** - Built-in management interfaces
+- **Certificate Resolvers** - ACME/Let's Encrypt configuration
+- **Logging and Metrics** - Observability settings
+
+Static configuration is loaded once at startup from:
+- Configuration file (YAML or TOML)
+- Command-line arguments
+- Environment variables
+
+### Dynamic Configuration
+
+Dynamic configuration defines how requests are routed to services and can be updated without restarting Traefik:
+
+- **Routers** - Connect incoming requests to services based on rules
+- **Services** - Define backend servers and load balancing
+- **Middlewares** - Process requests before forwarding to services
+- **TLS Certificates** - SSL/TLS certificates for secure connections
+
+Dynamic configuration is discovered through **Providers** and updates automatically when changes are detected.
+
+<Note>
+The separation between static and dynamic configuration is fundamental to Traefik's architecture. Static configuration sets up the infrastructure, while dynamic configuration handles the routing logic.
+</Note>
+
+## Configuration File Formats
+
+Traefik supports two file formats for configuration:
+
+### YAML Format
+
+<CodeGroup>
+```yaml Static Configuration (traefik.yml)
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: true
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    directory: "/etc/traefik/dynamic"
+    watch: true
+
+api:
+  dashboard: true
+  insecure: false
+
+log:
+  level: "INFO"
+```
+
+```yaml Dynamic Configuration
+http:
+  routers:
+    my-router:
+      rule: "Host(`example.com`)"
+      service: my-service
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    my-service:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.1.10:8080"
+          - url: "http://192.168.1.11:8080"
+
+  middlewares:
+    auth:
+      basicAuth:
+        users:
+          - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+```
+</CodeGroup>
+
+### TOML Format
+
+<CodeGroup>
+```toml Static Configuration (traefik.toml)
+[global]
+  checkNewVersion = true
+  sendAnonymousUsage = true
+
+[entryPoints]
+  [entryPoints.web]
+    address = ":80"
+  [entryPoints.websecure]
+    address = ":443"
+
+[providers.file]
+  directory = "/etc/traefik/dynamic"
+  watch = true
+
+[api]
+  dashboard = true
+  insecure = false
+
+[log]
+  level = "INFO"
+```
+
+```toml Dynamic Configuration
+[http.routers]
+  [http.routers.my-router]
+    rule = "Host(`example.com`)"
+    service = "my-service"
+    entryPoints = ["websecure"]
+    [http.routers.my-router.tls]
+      certResolver = "letsencrypt"
+
+[http.services]
+  [http.services.my-service.loadBalancer]
+    [[http.services.my-service.loadBalancer.servers]]
+      url = "http://192.168.1.10:8080"
+    [[http.services.my-service.loadBalancer.servers]]
+      url = "http://192.168.1.11:8080"
+
+[http.middlewares]
+  [http.middlewares.auth.basicAuth]
+    users = ["admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"]
+```
+</CodeGroup>
+
+## Configuration Sections
+
+### Global Configuration
+
+The global section controls Traefik's overall behavior:
+
+<ParamField path="checkNewVersion" type="boolean" default="true">
+  Periodically check if a new version is available
+</ParamField>
+
+<ParamField path="sendAnonymousUsage" type="boolean" default="true">
+  Send anonymous usage statistics to help improve Traefik
+</ParamField>
+
+### Example: Complete Static Configuration
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    global:
+      checkNewVersion: true
+      sendAnonymousUsage: true
+
+    entryPoints:
+      web:
+        address: ":80"
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+      
+      websecure:
+        address: ":443"
+        http:
+          tls:
+            certResolver: letsencrypt
+
+    certificatesResolvers:
+      letsencrypt:
+        acme:
+          email: admin@example.com
+          storage: /etc/traefik/acme.json
+          httpChallenge:
+            entryPoint: web
+
+    providers:
+      docker:
+        exposedByDefault: false
+      file:
+        directory: /etc/traefik/dynamic
+        watch: true
+
+    api:
+      dashboard: true
+
+    log:
+      level: INFO
+      format: json
+
+    accessLog:
+      format: json
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [global]
+      checkNewVersion = true
+      sendAnonymousUsage = true
+
+    [entryPoints]
+      [entryPoints.web]
+        address = ":80"
+        [entryPoints.web.http.redirections.entryPoint]
+          to = "websecure"
+          scheme = "https"
+      
+      [entryPoints.websecure]
+        address = ":443"
+        [entryPoints.websecure.http.tls]
+          certResolver = "letsencrypt"
+
+    [certificatesResolvers.letsencrypt]
+      [certificatesResolvers.letsencrypt.acme]
+        email = "admin@example.com"
+        storage = "/etc/traefik/acme.json"
+        [certificatesResolvers.letsencrypt.acme.httpChallenge]
+          entryPoint = "web"
+
+    [providers]
+      [providers.docker]
+        exposedByDefault = false
+      [providers.file]
+        directory = "/etc/traefik/dynamic"
+        watch = true
+
+    [api]
+      dashboard = true
+
+    [log]
+      level = "INFO"
+      format = "json"
+
+    [accessLog]
+      format = "json"
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration Priority
+
+When using multiple configuration sources, Traefik applies them in this order (later sources override earlier ones):
+
+1. Default values
+2. Configuration file
+3. Environment variables
+4. Command-line arguments
+
+<Warning>
+For security reasons, avoid putting sensitive data (like API keys or passwords) directly in configuration files. Use environment variables or secrets management instead.
+</Warning>
+
+## Configuration Validation
+
+Traefik validates configuration on startup. If errors are found:
+
+- **Static Configuration Errors** - Traefik will not start
+- **Dynamic Configuration Errors** - Errors are logged, invalid configuration is ignored
+
+### Common Validation Errors
+
+- Duplicate router/service names
+- Invalid rule syntax
+- Missing required fields
+- Invalid port numbers or addresses
+- Malformed TLS certificates
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="EntryPoints" icon="door-open" href="/configuration/entrypoints">
+    Configure network entry points for incoming traffic
+  </Card>
+  
+  <Card title="Routers" icon="route" href="/configuration/routers">
+    Define routing rules to connect requests to services
+  </Card>
+  
+  <Card title="Services" icon="server" href="/configuration/services">
+    Configure backend services and load balancing
+  </Card>
+  
+  <Card title="Providers" icon="plug" href="/configuration/providers">
+    Set up configuration discovery sources
+  </Card>
+</CardGroup>

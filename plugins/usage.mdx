@@ -1,0 +1,880 @@
+---
+title: 'Using and Developing Plugins'
+description: 'Complete guide to installing, configuring, and developing Traefik plugins'
+---
+
+# Using and Developing Plugins
+
+This guide covers everything you need to know about using external plugins and developing your own custom Traefik plugins.
+
+## Installing Remote Plugins
+
+Remote plugins are published to the [Plugin Catalog](https://plugins.traefik.io/) and hosted on GitHub. Traefik automatically downloads and installs them based on your configuration.
+
+### Basic Installation
+
+<Steps>
+  <Step title="Find a Plugin">
+    Browse the [Plugin Catalog](https://plugins.traefik.io/) or use a direct GitHub repository URL.
+  </Step>
+  
+  <Step title="Add to Static Configuration">
+    Define the plugin in your Traefik static configuration file:
+
+    <CodeGroup>
+    ```yaml traefik.yml
+    experimental:
+      plugins:
+        block-ip:
+          moduleName: github.com/example/traefik-plugin-blockip
+          version: v1.2.0
+    ```
+
+    ```toml traefik.toml
+    [experimental.plugins.block-ip]
+      moduleName = "github.com/example/traefik-plugin-blockip"
+      version = "v1.2.0"
+    ```
+
+    ```bash CLI
+    --experimental.plugins.block-ip.modulename=github.com/example/traefik-plugin-blockip
+    --experimental.plugins.block-ip.version=v1.2.0
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Use in Dynamic Configuration">
+    Reference the plugin in your dynamic configuration:
+
+    <CodeGroup>
+    ```yaml dynamic.yml
+    http:
+      middlewares:
+        my-blocker:
+          plugin:
+            block-ip:
+              allowedIPs:
+                - 10.0.0.0/8
+                - 192.168.0.0/16
+    
+      routers:
+        my-router:
+          rule: "Host(`example.com`)"
+          middlewares:
+            - my-blocker
+          service: my-service
+    ```
+
+    ```toml dynamic.toml
+    [http.middlewares.my-blocker.plugin.block-ip]
+      allowedIPs = ["10.0.0.0/8", "192.168.0.0/16"]
+    
+    [http.routers.my-router]
+      rule = "Host(`example.com`)"
+      middlewares = ["my-blocker"]
+      service = "my-service"
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Restart Traefik">
+    Restart Traefik to download and load the plugin. Check logs for successful installation.
+  </Step>
+</Steps>
+
+<Note>
+The plugin name in static configuration (`block-ip`) is how you reference it in dynamic configuration. It can be different from the module name.
+</Note>
+
+### Advanced Installation Options
+
+#### With Hash Verification
+
+For production deployments, verify plugin integrity using SHA-256 hash:
+
+```yaml traefik.yml
+experimental:
+  plugins:
+    my-plugin:
+      moduleName: github.com/user/my-plugin
+      version: v1.0.0
+      hash: sha256:1234567890abcdef...  # Get from first installation logs
+```
+
+The hash appears in Traefik logs during initial download. Copy it for future deployments to ensure you're always getting the exact same plugin code.
+
+#### WebAssembly Plugin Settings
+
+Wasm plugins support additional isolation settings:
+
+```yaml traefik.yml
+experimental:
+  plugins:
+    wasm-plugin:
+      moduleName: github.com/user/wasm-plugin
+      version: v1.0.0
+      settings:
+        envs:                    # Environment variables to forward
+          - API_KEY
+          - DATABASE_URL
+          - LOG_LEVEL
+        mounts:                  # File system mounts
+          - /var/data:/data      # host:guest mapping
+          - /etc/config:/config:ro  # :ro for read-only
+```
+
+<Warning>
+Be cautious with file system mounts. Only mount necessary directories and use read-only (`:ro`) when possible.
+</Warning>
+
+#### Unsafe Package Access
+
+Some plugins require access to Go's `unsafe` and `syscall` packages:
+
+```yaml traefik.yml
+experimental:
+  plugins:
+    advanced-plugin:
+      moduleName: github.com/user/advanced-plugin
+      version: v1.0.0
+      settings:
+        useUnsafe: true  # Enable with extreme caution
+```
+
+<Warning>
+**Security Risk**: Enabling `useUnsafe` allows plugins to perform low-level operations that could compromise system security. Only enable for trusted plugins.
+</Warning>
+
+### Abort on Failure
+
+Prevent Traefik from starting if any plugin fails to load:
+
+```yaml traefik.yml
+experimental:
+  abortOnPluginFailure: true
+  plugins:
+    critical-plugin:
+      moduleName: github.com/user/critical-plugin
+      version: v1.0.0
+```
+
+This is useful in production to catch plugin issues immediately rather than running with missing functionality.
+
+## Using Provider Plugins
+
+Provider plugins integrate custom configuration sources with Traefik.
+
+### Static Configuration
+
+```yaml traefik.yml
+experimental:
+  plugins:
+    my-provider:
+      moduleName: github.com/user/my-provider-plugin
+      version: v1.0.0
+
+providers:
+  plugin:
+    my-provider:
+      apiEndpoint: https://config.example.com
+      refreshInterval: 30s
+      token: secret-token
+```
+
+### Provider Plugin Behavior
+
+<Steps>
+  <Step title="Automatic Initialization">
+    Provider plugins are automatically initialized when Traefik starts. The `Init()` method is called first.
+  </Step>
+  
+  <Step title="Configuration Stream">
+    The `Provide()` method is called to start the configuration stream. The plugin sends updates via a channel.
+  </Step>
+  
+  <Step title="Dynamic Updates">
+    Provider can send configuration updates at any time. Traefik applies them dynamically without restart.
+  </Step>
+  
+  <Step title="Graceful Shutdown">
+    During shutdown, the `Stop()` method is called to clean up resources.
+  </Step>
+</Steps>
+
+## Local Plugin Development
+
+Develop and test plugins locally before publishing to GitHub.
+
+### Setting Up Local Development
+
+<Steps>
+  <Step title="Create Plugin Directory Structure">
+    ```bash
+    mkdir -p ./plugins-local/github.com/myuser/myplugin
+    cd ./plugins-local/github.com/myuser/myplugin
+    ```
+  </Step>
+  
+  <Step title="Initialize Go Module">
+    ```bash
+    go mod init github.com/myuser/myplugin
+    ```
+  </Step>
+  
+  <Step title="Create Plugin Manifest">
+    Create `.traefik.yml` in the plugin directory:
+
+    ```yaml .traefik.yml
+    displayName: My Custom Plugin
+    type: middleware
+    runtime: yaegi
+    import: github.com/myuser/myplugin
+    summary: Custom middleware for request modification
+    testData:
+      header: X-Custom-Header
+      value: custom-value
+    ```
+  </Step>
+  
+  <Step title="Configure Traefik">
+    Add the local plugin to static configuration:
+
+    ```yaml traefik.yml
+    experimental:
+      localPlugins:
+        my-dev-plugin:
+          moduleName: github.com/myuser/myplugin
+    ```
+  </Step>
+</Steps>
+
+### Creating a Middleware Plugin
+
+#### Basic Middleware Structure
+
+```go myplugin.go
+package myplugin
+
+import (
+    "context"
+    "fmt"
+    "net/http"
+)
+
+// Config holds the plugin configuration.
+type Config struct {
+    Header string `json:"header,omitempty" yaml:"header,omitempty"`
+    Value  string `json:"value,omitempty" yaml:"value,omitempty"`
+}
+
+// CreateConfig creates and initializes the plugin configuration.
+func CreateConfig() *Config {
+    return &Config{
+        Header: "X-Default-Header",
+        Value:  "default-value",
+    }
+}
+
+// Plugin holds the plugin state.
+type Plugin struct {
+    next   http.Handler
+    name   string
+    header string
+    value  string
+}
+
+// New creates a new plugin instance.
+func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
+    if len(config.Header) == 0 {
+        return nil, fmt.Errorf("header cannot be empty")
+    }
+
+    return &Plugin{
+        next:   next,
+        name:   name,
+        header: config.Header,
+        value:  config.Value,
+    }, nil
+}
+
+// ServeHTTP implements http.Handler.
+func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+    // Add custom header to request
+    req.Header.Set(p.header, p.value)
+    
+    // Continue to next middleware/handler
+    p.next.ServeHTTP(rw, req)
+}
+```
+
+#### Advanced Middleware Examples
+
+**Modifying Response Headers:**
+
+```go
+type responseWriter struct {
+    http.ResponseWriter
+    plugin *Plugin
+}
+
+func (r *responseWriter) WriteHeader(statusCode int) {
+    // Add response header
+    r.Header().Set(r.plugin.header, r.plugin.value)
+    r.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+    wrapped := &responseWriter{
+        ResponseWriter: rw,
+        plugin:         p,
+    }
+    p.next.ServeHTTP(wrapped, req)
+}
+```
+
+**Request Body Processing:**
+
+```go
+import (
+    "bytes"
+    "io"
+)
+
+func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+    // Read request body
+    body, err := io.ReadAll(req.Body)
+    if err != nil {
+        http.Error(rw, "Failed to read body", http.StatusInternalServerError)
+        return
+    }
+    req.Body.Close()
+
+    // Process body (example: transform JSON)
+    processedBody := processBody(body)
+
+    // Create new body reader
+    req.Body = io.NopCloser(bytes.NewReader(processedBody))
+    req.ContentLength = int64(len(processedBody))
+
+    p.next.ServeHTTP(rw, req)
+}
+```
+
+**Error Handling and Logging:**
+
+```go
+import (
+    "log"
+)
+
+func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+    log.Printf("[%s] Processing request: %s %s", p.name, req.Method, req.URL.Path)
+
+    // Validate request
+    if err := p.validateRequest(req); err != nil {
+        log.Printf("[%s] Validation error: %v", p.name, err)
+        http.Error(rw, "Invalid request", http.StatusBadRequest)
+        return
+    }
+
+    p.next.ServeHTTP(rw, req)
+}
+```
+
+### Creating a Provider Plugin
+
+```go provider.go
+package myprovider
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "time"
+)
+
+type Config struct {
+    APIEndpoint     string        `json:"apiEndpoint,omitempty"`
+    RefreshInterval time.Duration `json:"refreshInterval,omitempty"`
+    Token           string        `json:"token,omitempty"`
+}
+
+func CreateConfig() *Config {
+    return &Config{
+        RefreshInterval: 30 * time.Second,
+    }
+}
+
+type Provider struct {
+    config  *Config
+    name    string
+    cancel  context.CancelFunc
+}
+
+func New(ctx context.Context, config *Config, name string) (*Provider, error) {
+    if config.APIEndpoint == "" {
+        return nil, fmt.Errorf("apiEndpoint is required")
+    }
+
+    return &Provider{
+        config: config,
+        name:   name,
+    }, nil
+}
+
+func (p *Provider) Init() error {
+    // Initialize connections, validate config, etc.
+    return nil
+}
+
+func (p *Provider) Provide(cfgChan chan<- json.Marshaler) error {
+    ctx, cancel := context.WithCancel(context.Background())
+    p.cancel = cancel
+
+    ticker := time.NewTicker(p.config.RefreshInterval)
+    defer ticker.Stop()
+
+    // Send initial configuration
+    if err := p.sendConfig(cfgChan); err != nil {
+        return err
+    }
+
+    // Watch for updates
+    for {
+        select {
+        case <-ctx.Done():
+            return nil
+        case <-ticker.C:
+            if err := p.sendConfig(cfgChan); err != nil {
+                return err
+            }
+        }
+    }
+}
+
+func (p *Provider) sendConfig(cfgChan chan<- json.Marshaler) error {
+    // Fetch configuration from your source
+    config := p.fetchConfiguration()
+    
+    // Send to Traefik
+    cfgChan <- config
+    return nil
+}
+
+func (p *Provider) Stop() error {
+    if p.cancel != nil {
+        p.cancel()
+    }
+    return nil
+}
+
+func (p *Provider) fetchConfiguration() json.Marshaler {
+    // Implement your configuration fetching logic
+    // Return a structure that implements json.Marshaler
+    // and contains Traefik dynamic configuration
+    return &Configuration{}
+}
+
+type Configuration struct {
+    // Your configuration structure matching Traefik's dynamic config
+}
+
+func (c *Configuration) MarshalJSON() ([]byte, error) {
+    // Marshal to Traefik's expected format
+    return json.Marshal(c)
+}
+```
+
+### Creating a WebAssembly Plugin
+
+WebAssembly plugins can be written in any language that compiles to Wasm and supports the [http-wasm](https://http-wasm.io/) ABI.
+
+#### TinyGo Example
+
+```go main.go
+package main
+
+import (
+    "github.com/http-wasm/http-wasm-guest-tinygo/handler"
+    "github.com/http-wasm/http-wasm-guest-tinygo/handler/api"
+)
+
+func main() {
+    handler.HandleRequestFn = handleRequest
+}
+
+func handleRequest(req api.Request, resp api.Response) (next bool, reqCtx uint32) {
+    // Read configuration
+    config := getConfig()
+    
+    // Modify request
+    req.Headers().Set("X-Custom-Header", config.HeaderValue)
+    
+    // Continue to next handler
+    return true, 0
+}
+
+type Config struct {
+    HeaderValue string `json:"headerValue"`
+}
+
+func getConfig() Config {
+    // Parse configuration from guest config
+    var config Config
+    // ... parse logic
+    return config
+}
+```
+
+Build the plugin:
+
+```bash
+tinygo build -o plugin.wasm -target=wasi main.go
+```
+
+Manifest for Wasm plugin:
+
+```yaml .traefik.yml
+displayName: My Wasm Plugin
+type: middleware
+runtime: wasm
+wasmPath: plugin.wasm
+summary: WebAssembly middleware plugin
+testData:
+  headerValue: test-value
+```
+
+## Testing Plugins
+
+### Unit Testing
+
+```go myplugin_test.go
+package myplugin
+
+import (
+    "context"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+)
+
+func TestPlugin(t *testing.T) {
+    config := CreateConfig()
+    config.Header = "X-Test"
+    config.Value = "test-value"
+
+    next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+        // Verify header was added
+        if req.Header.Get("X-Test") != "test-value" {
+            t.Error("Header not set correctly")
+        }
+        rw.WriteHeader(http.StatusOK)
+    })
+
+    plugin, err := New(context.Background(), next, config, "test")
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    req := httptest.NewRequest(http.MethodGet, "http://localhost", nil)
+    rw := httptest.NewRecorder()
+
+    plugin.ServeHTTP(rw, req)
+
+    if rw.Code != http.StatusOK {
+        t.Errorf("Expected status 200, got %d", rw.Code)
+    }
+}
+```
+
+### Integration Testing
+
+Create a test Traefik configuration:
+
+<CodeGroup>
+```yaml traefik-test.yml
+entryPoints:
+  web:
+    address: ":8080"
+
+experimental:
+  localPlugins:
+    test-plugin:
+      moduleName: github.com/myuser/myplugin
+
+providers:
+  file:
+    filename: dynamic-test.yml
+```
+
+```yaml dynamic-test.yml
+http:
+  middlewares:
+    test-middleware:
+      plugin:
+        test-plugin:
+          header: X-Integration-Test
+          value: working
+
+  routers:
+    test:
+      rule: "PathPrefix(`/`)"
+      service: test-service
+      middlewares:
+        - test-middleware
+
+  services:
+    test-service:
+      loadBalancer:
+        servers:
+          - url: http://localhost:9000
+```
+</CodeGroup>
+
+Run integration test:
+
+```bash
+# Start Traefik with test config
+traefik --configFile=traefik-test.yml
+
+# Test the plugin
+curl -v http://localhost:8080/
+
+# Verify header in backend logs
+```
+
+## Publishing Plugins
+
+### Prerequisites
+
+<Steps>
+  <Step title="GitHub Repository">
+    Create a public GitHub repository for your plugin.
+  </Step>
+  
+  <Step title="Valid Go Module">
+    Ensure `go.mod` is properly initialized with the correct module path.
+  </Step>
+  
+  <Step title="Complete Manifest">
+    Include `.traefik.yml` with all required fields.
+  </Step>
+  
+  <Step title="Documentation">
+    Add `README.md` with usage instructions and examples.
+  </Step>
+  
+  <Step title="License">
+    Include a `LICENSE` file (recommended: Apache 2.0 or MIT).
+  </Step>
+</Steps>
+
+### Release Process
+
+```bash
+# Tag your release
+git tag -a v1.0.0 -m "First release"
+git push origin v1.0.0
+
+# Create GitHub release (optional but recommended)
+gh release create v1.0.0 --title "v1.0.0" --notes "Initial release"
+```
+
+### Submit to Plugin Catalog
+
+1. Visit [plugins.traefik.io](https://plugins.traefik.io/)
+2. Click "Submit a Plugin"
+3. Follow the submission process
+4. Wait for review and approval
+
+<Note>
+Plugin Catalog submission requires a valid GitHub repository with proper versioning and manifest.
+</Note>
+
+## Common Patterns
+
+### Configuration Validation
+
+```go
+func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
+    // Validate required fields
+    if config.RequiredField == "" {
+        return nil, fmt.Errorf("requiredField cannot be empty")
+    }
+
+    // Validate ranges
+    if config.Timeout < 0 {
+        return nil, fmt.Errorf("timeout must be positive")
+    }
+
+    // Validate URLs
+    if _, err := url.Parse(config.Endpoint); err != nil {
+        return nil, fmt.Errorf("invalid endpoint URL: %w", err)
+    }
+
+    return &Plugin{...}, nil
+}
+```
+
+### State Management
+
+```go
+import "sync"
+
+type Plugin struct {
+    mu      sync.RWMutex
+    next    http.Handler
+    counter map[string]int
+}
+
+func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+    p.mu.Lock()
+    p.counter[req.RemoteAddr]++
+    p.mu.Unlock()
+
+    p.next.ServeHTTP(rw, req)
+}
+```
+
+### External API Calls
+
+```go
+import (
+    "net/http"
+    "time"
+)
+
+type Plugin struct {
+    client *http.Client
+    // ...
+}
+
+func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
+    return &Plugin{
+        client: &http.Client{
+            Timeout: 5 * time.Second,
+        },
+        next: next,
+    }, nil
+}
+
+func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+    // Make external API call
+    resp, err := p.client.Get("https://api.example.com/validate")
+    if err != nil {
+        http.Error(rw, "Validation failed", http.StatusServiceUnavailable)
+        return
+    }
+    defer resp.Body.Close()
+
+    p.next.ServeHTTP(rw, req)
+}
+```
+
+## Troubleshooting
+
+### Plugin Not Found
+
+**Symptom**: `unknown plugin type: my-plugin`
+
+**Solution**: 
+- Verify plugin name in static config matches dynamic config reference
+- Check that plugin was successfully downloaded (check logs)
+- Ensure Traefik was restarted after adding plugin to static config
+
+### Import Errors
+
+**Symptom**: `failed to import plugin code`
+
+**Solution**:
+- Verify `import` field in `.traefik.yml` matches `go.mod` module name
+- Check that Go files have correct package declaration
+- Ensure all dependencies are properly vendored (for complex plugins)
+
+### Version Not Found
+
+**Symptom**: `unable to download plugin`
+
+**Solution**:
+- Verify version tag exists in GitHub: `git tag -l`
+- Ensure tag follows semantic versioning: `v1.0.0` (not `1.0.0`)
+- Check repository is public and accessible
+
+### Manifest Validation Errors
+
+**Symptom**: `missing DisplayName`, `missing Summary`, etc.
+
+**Solution**: Ensure `.traefik.yml` contains all required fields:
+
+```yaml
+displayName: Must be present
+type: middleware or provider
+summary: Required description
+testData:  # Required, even if empty
+  key: value
+```
+
+### Wasm Plugin Issues
+
+**Symptom**: `loading Wasm binary` errors
+
+**Solution**:
+- Verify `wasmPath` points to valid `.wasm` file
+- Ensure Wasm file is compiled with compatible target (WASI)
+- Check Wasm module exports required functions
+
+### Performance Issues
+
+**Symptom**: Slow request processing after adding plugin
+
+**Solution**:
+- Profile plugin code to identify bottlenecks
+- Avoid blocking operations in request handlers
+- Use caching for expensive operations
+- Consider using Wasm for better isolation and resource control
+
+## Best Practices Summary
+
+### Development
+
+- Start with local plugin development
+- Write comprehensive tests (unit and integration)
+- Use semantic versioning for releases
+- Document configuration options thoroughly
+- Provide working examples
+
+### Security
+
+- Review all third-party plugins before use
+- Pin specific versions in production
+- Enable hash verification
+- Minimize use of `useUnsafe` setting
+- Restrict Wasm file system access
+
+### Production
+
+- Test plugins in staging environment first
+- Monitor plugin performance impact
+- Use `abortOnPluginFailure` for critical plugins
+- Keep plugins updated
+- Have rollback plan ready
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Plugin Catalog" icon="store" href="https://plugins.traefik.io/">
+    Browse and install community plugins
+  </Card>
+  
+  <Card title="Plugin Development Guide" icon="code" href="https://plugins.traefik.io/create">
+    Official guide for creating plugins
+  </Card>
+  
+  <Card title="Plugins Overview" icon="puzzle-piece" href="/plugins/overview">
+    Understand plugin architecture and concepts
+  </Card>
+  
+  <Card title="http-wasm" icon="cube" href="https://http-wasm.io/">
+    WebAssembly HTTP handler specification
+  </Card>
+</CardGroup>

@@ -1,0 +1,555 @@
+---
+title: 'etcd Provider'
+description: 'Store Traefik configuration in etcd key-value store for centralized, distributed configuration management.'
+---
+
+# etcd Provider
+
+A Story of KV Store & Containers
+
+Store your Traefik configuration in etcd and let Traefik automatically watch for changes. The etcd provider enables centralized configuration management with distributed consistency and high availability.
+
+## Why Use etcd?
+
+✅ **Centralized configuration** - Single source of truth for all Traefik instances  
+✅ **High availability** - Distributed key-value store with strong consistency  
+✅ **Real-time updates** - Traefik watches for changes and updates instantly  
+✅ **Multi-instance support** - Share configuration across multiple Traefik replicas  
+✅ **Version control** - Track configuration changes over time
+
+## Quick Start
+
+<Steps>
+  <Step title="Enable etcd Provider">
+    <CodeGroup>
+    ```yaml traefik.yml
+    providers:
+      etcd:
+        endpoints:
+          - "127.0.0.1:2379"
+        rootKey: "traefik"
+        username: "traefik"
+        password: "secret"
+    ```
+    
+    ```toml traefik.toml
+    [providers.etcd]
+      endpoints = ["127.0.0.1:2379"]
+      rootKey = "traefik"
+      username = "traefik"
+      password = "secret"
+    ```
+    
+    ```bash CLI
+    --providers.etcd.endpoints=127.0.0.1:2379
+    --providers.etcd.rootkey=traefik
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Store Configuration in etcd">
+    ```bash
+    # Create a router
+    etcdctl put /traefik/http/routers/my-router/rule "Host(`example.com`)"
+    etcdctl put /traefik/http/routers/my-router/service "my-service"
+    etcdctl put /traefik/http/routers/my-router/entrypoints/0 "web"
+    
+    # Create a service
+    etcdctl put /traefik/http/services/my-service/loadbalancer/servers/0/url "http://192.168.1.10:8080"
+    etcdctl put /traefik/http/services/my-service/loadbalancer/servers/1/url "http://192.168.1.11:8080"
+    ```
+  </Step>
+  
+  <Step title="Configuration Auto-Loads">
+    Traefik automatically detects changes and updates routing!
+  </Step>
+</Steps>
+
+## Configuration Structure
+
+The etcd provider uses a hierarchical key structure:
+
+```
+/traefik/
+  http/
+    routers/
+      my-router/
+        rule: Host(`example.com`)
+        service: my-service
+        entrypoints/
+          0: web
+          1: websecure
+        middlewares/
+          0: auth
+        tls/
+          certResolver: letsencrypt
+    
+    services/
+      my-service/
+        loadbalancer/
+          servers/
+            0/
+              url: http://192.168.1.10:8080
+            1/
+              url: http://192.168.1.11:8080
+          healthcheck/
+            path: /health
+            interval: 10s
+    
+    middlewares/
+      auth/
+        basicauth/
+          users/
+            0: admin:$apr1$...
+```
+
+## Provider Configuration
+
+### endpoints
+
+_Required, Default: `["127.0.0.1:2379"]`_
+
+etcd server addresses:
+
+```yaml
+providers:
+  etcd:
+    endpoints:
+      - "etcd1.example.com:2379"
+      - "etcd2.example.com:2379"
+      - "etcd3.example.com:2379"
+```
+
+### rootKey
+
+_Default: `traefik`_
+
+Root prefix for all configuration keys:
+
+```yaml
+providers:
+  etcd:
+    rootKey: "myapp/lb"
+```
+
+Keys will be stored under `/myapp/lb/http/routers/...`
+
+### username
+
+_Optional, Default: `""`_
+
+Authentication username:
+
+```yaml
+providers:
+  etcd:
+    username: "traefik-user"
+    password: "${ETCD_PASSWORD}"
+```
+
+### password
+
+_Optional, Default: `""`_
+
+Authentication password:
+
+```yaml
+providers:
+  etcd:
+    password: "${ETCD_PASSWORD}"
+```
+
+<Warning>
+  Store passwords in environment variables, not in configuration files.
+</Warning>
+
+### tls
+
+TLS configuration for secure connections:
+
+```yaml
+providers:
+  etcd:
+    endpoints:
+      - "https://etcd.example.com:2379"
+    tls:
+      ca: "/path/to/ca.crt"
+      cert: "/path/to/client.crt"
+      key: "/path/to/client.key"
+      insecureSkipVerify: false
+```
+
+## Configuration Examples
+
+### HTTP Router and Service
+
+<CodeGroup>
+```bash etcdctl
+# Router configuration
+etcdctl put /traefik/http/routers/web/rule "Host(`www.example.com`)"
+etcdctl put /traefik/http/routers/web/service "web-service"
+etcdctl put /traefik/http/routers/web/entrypoints/0 "websecure"
+etcdctl put /traefik/http/routers/web/tls/certResolver "letsencrypt"
+
+# Service configuration
+etcdctl put /traefik/http/services/web-service/loadbalancer/servers/0/url "http://10.0.1.10:80"
+etcdctl put /traefik/http/services/web-service/loadbalancer/servers/1/url "http://10.0.1.11:80"
+etcdctl put /traefik/http/services/web-service/loadbalancer/healthcheck/path "/health"
+etcdctl put /traefik/http/services/web-service/loadbalancer/healthcheck/interval "10s"
+```
+
+```json JSON Import
+{
+  "traefik": {
+    "http": {
+      "routers": {
+        "web": {
+          "rule": "Host(`www.example.com`)",
+          "service": "web-service",
+          "entrypoints": ["websecure"],
+          "tls": {
+            "certResolver": "letsencrypt"
+          }
+        }
+      },
+      "services": {
+        "web-service": {
+          "loadbalancer": {
+            "servers": [
+              {"url": "http://10.0.1.10:80"},
+              {"url": "http://10.0.1.11:80"}
+            ],
+            "healthcheck": {
+              "path": "/health",
+              "interval": "10s"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+</CodeGroup>
+
+### Middleware
+
+```bash
+# Basic Auth middleware
+etcdctl put /traefik/http/middlewares/auth/basicauth/users/0 "admin:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/"
+
+# Rate limiting
+etcdctl put /traefik/http/middlewares/ratelimit/ratelimit/average "100"
+etcdctl put /traefik/http/middlewares/ratelimit/ratelimit/burst "50"
+
+# Compression
+etcdctl put /traefik/http/middlewares/compress/compress ""
+
+# Headers
+etcdctl put /traefik/http/middlewares/security/headers/sslredirect "true"
+etcdctl put /traefik/http/middlewares/security/headers/stsseconds "31536000"
+```
+
+Attach to router:
+
+```bash
+etcdctl put /traefik/http/routers/api/middlewares/0 "auth"
+etcdctl put /traefik/http/routers/api/middlewares/1 "ratelimit"
+```
+
+### TCP Router and Service
+
+```bash
+# TCP Router
+etcdctl put /traefik/tcp/routers/postgres/rule "HostSNI(`db.example.com`)"
+etcdctl put /traefik/tcp/routers/postgres/service "postgres-service"
+etcdctl put /traefik/tcp/routers/postgres/entrypoints/0 "postgresql"
+etcdctl put /traefik/tcp/routers/postgres/tls/passthrough "true"
+
+# TCP Service
+etcdctl put /traefik/tcp/services/postgres-service/loadbalancer/servers/0/address "10.0.1.50:5432"
+```
+
+### TLS Configuration
+
+```bash
+# TLS Options
+etcdctl put /traefik/tls/options/modern/minversion "VersionTLS13"
+etcdctl put /traefik/tls/options/modern/ciphersuites/0 "TLS_AES_128_GCM_SHA256"
+etcdctl put /traefik/tls/options/modern/ciphersuites/1 "TLS_AES_256_GCM_SHA384"
+
+# TLS Store (default certificate)
+etcdctl put /traefik/tls/stores/default/defaultcertificate/certfile "/certs/default.crt"
+etcdctl put /traefik/tls/stores/default/defaultcertificate/keyfile "/certs/default.key"
+```
+
+## Complete Application Example
+
+```bash
+#!/bin/bash
+
+# Create API router
+etcdctl put /traefik/http/routers/api/rule "Host(\`api.example.com\`) && PathPrefix(\`/v1\`)"
+etcdctl put /traefik/http/routers/api/service "api-service"
+etcdctl put /traefik/http/routers/api/entrypoints/0 "websecure"
+etcdctl put /traefik/http/routers/api/middlewares/0 "api-auth"
+etcdctl put /traefik/http/routers/api/middlewares/1 "api-ratelimit"
+etcdctl put /traefik/http/routers/api/tls/certresolver "letsencrypt"
+
+# Create API service with load balancing
+etcdctl put /traefik/http/services/api-service/loadbalancer/servers/0/url "http://10.0.1.20:8080"
+etcdctl put /traefik/http/services/api-service/loadbalancer/servers/1/url "http://10.0.1.21:8080"
+etcdctl put /traefik/http/services/api-service/loadbalancer/servers/2/url "http://10.0.1.22:8080"
+etcdctl put /traefik/http/services/api-service/loadbalancer/healthcheck/path "/health"
+etcdctl put /traefik/http/services/api-service/loadbalancer/healthcheck/interval "10s"
+etcdctl put /traefik/http/services/api-service/loadbalancer/sticky/cookie/name "api_session"
+etcdctl put /traefik/http/services/api-service/loadbalancer/sticky/cookie/httponly "true"
+
+# Create middleware
+etcdctl put /traefik/http/middlewares/api-auth/basicauth/users/0 "api:$$apr1$$..."
+etcdctl put /traefik/http/middlewares/api-ratelimit/ratelimit/average "100"
+etcdctl put /traefik/http/middlewares/api-ratelimit/ratelimit/period "1s"
+etcdctl put /traefik/http/middlewares/api-ratelimit/ratelimit/burst "200"
+
+echo "API configuration loaded into etcd"
+```
+
+## Management Scripts
+
+### Backup Configuration
+
+```bash
+#!/bin/bash
+# backup-traefik-config.sh
+
+BACKUP_FILE="traefik-config-$(date +%Y%m%d-%H%M%S).json"
+
+# Export all Traefik configuration
+etcdctl get /traefik --prefix --print-value-only > "$BACKUP_FILE"
+
+echo "Configuration backed up to $BACKUP_FILE"
+```
+
+### Restore Configuration
+
+```bash
+#!/bin/bash
+# restore-traefik-config.sh
+
+BACKUP_FILE="$1"
+
+if [ -z "$BACKUP_FILE" ]; then
+  echo "Usage: $0 <backup-file>"
+  exit 1
+fi
+
+# Delete existing configuration
+etcdctl del /traefik --prefix
+
+# Restore from backup
+cat "$BACKUP_FILE" | while IFS= read -r line; do
+  # Parse and restore each key-value pair
+  # (simplified - adapt based on backup format)
+done
+
+echo "Configuration restored from $BACKUP_FILE"
+```
+
+### List All Routes
+
+```bash
+#!/bin/bash
+# list-routes.sh
+
+echo "HTTP Routers:"
+etcdctl get /traefik/http/routers --prefix --keys-only | grep '/rule$' | while read key; do
+  rule=$(etcdctl get "$key" --print-value-only)
+  router=$(echo "$key" | sed 's|/traefik/http/routers/||' | sed 's|/rule||')
+  echo "  $router: $rule"
+done
+
+echo ""
+echo "TCP Routers:"
+etcdctl get /traefik/tcp/routers --prefix --keys-only | grep '/rule$' | while read key; do
+  rule=$(etcdctl get "$key" --print-value-only)
+  router=$(echo "$key" | sed 's|/traefik/tcp/routers/||' | sed 's|/rule||')
+  echo "  $router: $rule"
+done
+```
+
+## High Availability Setup
+
+```yaml
+# traefik.yml on each Traefik instance
+providers:
+  etcd:
+    endpoints:
+      - "etcd1.example.com:2379"
+      - "etcd2.example.com:2379"
+      - "etcd3.example.com:2379"
+    rootKey: "traefik"
+    tls:
+      ca: "/etc/traefik/etcd-ca.crt"
+      cert: "/etc/traefik/etcd-client.crt"
+      key: "/etc/traefik/etcd-client.key"
+```
+
+All Traefik instances share the same configuration from etcd cluster.
+
+## Key Management Best Practices
+
+<Steps>
+  <Step title="Use Consistent Naming">
+    Develop a naming convention:
+    ```
+    /traefik/http/routers/{environment}-{app}-{purpose}
+    ```
+  </Step>
+  
+  <Step title="Organize by Environment">
+    ```bash
+    /traefik-prod/...
+    /traefik-staging/...
+    /traefik-dev/...
+    ```
+  </Step>
+  
+  <Step title="Version Critical Changes">
+    Keep backups before major changes:
+    ```bash
+    etcdctl snapshot save backup.db
+    ```
+  </Step>
+  
+  <Step title="Use TTL for Temporary Routes">
+    Set lease for temporary configurations:
+    ```bash
+    etcdctl lease grant 3600  # 1 hour
+    etcdctl put --lease=<lease-id> /traefik/http/routers/temp/...
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Connection Issues
+
+<Steps>
+  <Step title="Test etcd Connection">
+    ```bash
+    etcdctl --endpoints=127.0.0.1:2379 endpoint health
+    ```
+  </Step>
+  
+  <Step title="Check Authentication">
+    ```bash
+    etcdctl --user=traefik:password get /traefik/http/routers --prefix
+    ```
+  </Step>
+  
+  <Step title="Verify TLS Configuration">
+    ```bash
+    openssl s_client -connect etcd.example.com:2379 -cert client.crt -key client.key -CAfile ca.crt
+    ```
+  </Step>
+</Steps>
+
+### Configuration Not Loading
+
+```bash
+# Check if keys exist
+etcdctl get /traefik --prefix --keys-only
+
+# Verify key structure
+etcdctl get /traefik/http/routers/my-router --prefix
+
+# Check Traefik logs
+docker logs traefik | grep etcd
+```
+
+### Watch Not Working
+
+Ensure Traefik has watch permissions:
+
+```bash
+# Grant watch permission
+etcdctl role grant traefik --path=/traefik/* --permission=readwrite
+```
+
+## Monitoring
+
+### Watch Configuration Changes
+
+```bash
+# Monitor all changes
+etcdctl watch /traefik --prefix
+
+# Monitor specific router
+etcdctl watch /traefik/http/routers/api --prefix
+```
+
+### Configuration Metrics
+
+```bash
+# Count routers
+etcdctl get /traefik/http/routers --prefix --keys-only | wc -l
+
+# Count services
+etcdctl get /traefik/http/services --prefix --keys-only | wc -l
+
+# Count middleware
+etcdctl get /traefik/http/middlewares --prefix --keys-only | wc -l
+```
+
+## Migration from File Provider
+
+Convert file configuration to etcd:
+
+```python
+#!/usr/bin/env python3
+import yaml
+import subprocess
+
+def yaml_to_etcd(config, prefix="/traefik"):
+    """Convert YAML config to etcd keys"""
+    
+    def flatten(d, parent_key=''):
+        items = []
+        for k, v in d.items():
+            new_key = f"{parent_key}/{k}" if parent_key else k
+            if isinstance(v, dict):
+                items.extend(flatten(v, new_key).items())
+            elif isinstance(v, list):
+                for i, item in enumerate(v):
+                    if isinstance(item, dict):
+                        items.extend(flatten(item, f"{new_key}/{i}").items())
+                    else:
+                        items.append((f"{new_key}/{i}", str(item)))
+            else:
+                items.append((new_key, str(v)))
+        return dict(items)
+    
+    with open(config) as f:
+        data = yaml.safe_load(f)
+    
+    flat = flatten(data)
+    
+    for key, value in flat.items():
+        full_key = f"{prefix}/{key}"
+        subprocess.run(["etcdctl", "put", full_key, value])
+        print(f"Set {full_key} = {value}")
+
+if __name__ == "__main__":
+    yaml_to_etcd("config.yml")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="KV Provider Routing" icon="route" href="/routing/providers/kv">
+    Detailed routing configuration for KV stores
+  </Card>
+  <Card title="etcd Documentation" icon="book" href="https://etcd.io/docs/">
+    Official etcd documentation
+  </Card>
+</CardGroup>

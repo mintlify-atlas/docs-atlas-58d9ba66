@@ -1,0 +1,271 @@
+---
+title: "RateLimit Middleware"
+description: "Control the number of requests going to services with the RateLimit middleware in Traefik Proxy."
+---
+
+# RateLimit Middleware
+
+Control the Number of Requests Going to a Service
+
+The RateLimit middleware ensures that services will receive a fair amount of requests based on a [token bucket](https://en.wikipedia.org/wiki/Token_bucket) implementation.
+
+## Configuration Examples
+
+### Basic Rate Limiting
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+# 100 requests per second with burst of 200
+labels:
+  - "traefik.http.middlewares.test-ratelimit.ratelimit.average=100"
+  - "traefik.http.middlewares.test-ratelimit.ratelimit.burst=200"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-ratelimit
+spec:
+  rateLimit:
+    average: 100
+    burst: 200
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 200
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-ratelimit.rateLimit]
+    average = 100
+    burst = 200
+```
+
+</CodeGroup>
+
+### Rate Limiting with Period
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+# 6 requests per minute
+labels:
+  - "traefik.http.middlewares.test-ratelimit.ratelimit.average=6"
+  - "traefik.http.middlewares.test-ratelimit.ratelimit.period=1m"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-ratelimit
+spec:
+  rateLimit:
+    average: 6
+    period: 1m
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-ratelimit:
+      rateLimit:
+        average: 6
+        period: 1m
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-ratelimit.rateLimit]
+    average = 6
+    period = "1m"
+```
+
+</CodeGroup>
+
+### Rate Limiting with IP Strategy
+
+<CodeGroup>
+
+```yaml Docker & Swarm
+labels:
+  - "traefik.http.middlewares.test-ratelimit.ratelimit.average=100"
+  - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.depth=2"
+```
+
+```yaml Kubernetes
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-ratelimit
+spec:
+  rateLimit:
+    average: 100
+    sourceCriterion:
+      ipStrategy:
+        depth: 2
+```
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-ratelimit:
+      rateLimit:
+        average: 100
+        sourceCriterion:
+          ipStrategy:
+            depth: 2
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-ratelimit.rateLimit]
+    average = 100
+    [http.middlewares.test-ratelimit.rateLimit.sourceCriterion.ipStrategy]
+      depth = 2
+```
+
+</CodeGroup>
+
+## Configuration Options
+
+### Rate Configuration
+
+<ParamField path="average" type="integer" default="0">
+  Maximum rate, by default in requests per second, allowed from a given source. Setting to 0 means no rate limiting.
+  
+  The actual rate is defined by dividing `average` by `period`.
+</ParamField>
+
+<ParamField path="period" type="duration" default="1s">
+  Period in combination with `average` defines the actual maximum rate. The rate is calculated as: `r = average / period`
+</ParamField>
+
+<ParamField path="burst" type="integer" default="1">
+  Maximum number of requests allowed to go through in the same arbitrarily small period of time.
+</ParamField>
+
+### Source Criterion
+
+<ParamField path="sourceCriterion.ipStrategy.depth" type="integer">
+  Use the X-Forwarded-For header and select the IP at the specified depth (starting from the right).
+</ParamField>
+
+<ParamField path="sourceCriterion.ipStrategy.excludedIPs" type="array">
+  List of IPs to exclude when determining the client IP.
+</ParamField>
+
+<ParamField path="sourceCriterion.ipStrategy.ipv6Subnet" type="integer">
+  Subnet mask for IPv6 addresses. Useful for grouping IPv6 addresses into subnets.
+</ParamField>
+
+<ParamField path="sourceCriterion.requestHeaderName" type="string">
+  Name of the header used to group incoming requests.
+</ParamField>
+
+<ParamField path="sourceCriterion.requestHost" type="boolean">
+  Whether to consider the request host as the source.
+</ParamField>
+
+### Redis Storage
+
+<Note>Enables distributed rate limiting using Redis to store tokens.</Note>
+
+<ParamField path="redis.endpoints" type="array" default="127.0.0.1:6379">
+  List of Redis server endpoints.
+</ParamField>
+
+<ParamField path="redis.username" type="string">
+  Username for Redis authentication.
+</ParamField>
+
+<ParamField path="redis.password" type="string">
+  Password for Redis authentication.
+</ParamField>
+
+<ParamField path="redis.db" type="integer" default="0">
+  Database to select after connecting to Redis.
+</ParamField>
+
+<ParamField path="redis.tls.ca" type="string">
+  Path to certificate authority for TLS connection.
+</ParamField>
+
+<ParamField path="redis.tls.cert" type="string">
+  Path to public certificate for TLS connection.
+</ParamField>
+
+<ParamField path="redis.tls.key" type="string">
+  Path to private key for TLS connection.
+</ParamField>
+
+<ParamField path="redis.tls.insecureSkipVerify" type="boolean" default="false">
+  Accept any certificate presented by the server.
+</ParamField>
+
+## Examples
+
+### Distributed Rate Limiting with Redis
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 200
+        redis:
+          endpoints:
+            - "127.0.0.1:6379"
+          username: "user"
+          password: "password"
+          db: 0
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-ratelimit.rateLimit]
+    average = 100
+    burst = 200
+    [http.middlewares.test-ratelimit.rateLimit.redis]
+      endpoints = ["127.0.0.1:6379"]
+      username = "user"
+      password = "password"
+      db = 0
+```
+
+</CodeGroup>
+
+### Rate Limiting by Header
+
+<CodeGroup>
+
+```yaml File (YAML)
+http:
+  middlewares:
+    test-ratelimit:
+      rateLimit:
+        average: 100
+        sourceCriterion:
+          requestHeaderName: username
+```
+
+```toml File (TOML)
+[http.middlewares]
+  [http.middlewares.test-ratelimit.rateLimit]
+    average = 100
+    [http.middlewares.test-ratelimit.rateLimit.sourceCriterion]
+      requestHeaderName = "username"
+```
+
+</CodeGroup>

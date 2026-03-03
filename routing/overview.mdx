@@ -1,0 +1,316 @@
+---
+title: 'Routing Overview'
+description: 'Learn how Traefik routes requests from EntryPoints through Routers to Services with middleware transformations'
+---
+
+# Routing Overview
+
+Understand how Traefik routes requests through its architecture.
+
+## How Routing Works
+
+Traefik's routing architecture connects incoming requests to backend services through a sophisticated pipeline:
+
+```mermaid
+graph LR
+    A[Client Request] --> B[EntryPoint]
+    B --> C[Router]
+    C --> D[Middleware]
+    D --> E[Service]
+    E --> F[Backend Server]
+```
+
+### Routing Flow
+
+1. **EntryPoints** listen for incoming traffic on specific ports (e.g., `:80`, `:443`)
+2. **Routers** analyze requests using rules to match patterns (host, path, headers)
+3. **Middleware** transforms requests (authentication, rate limiting, headers)
+4. **Services** load balance and forward requests to backend servers
+
+<Note>
+Every request must match a router rule to be forwarded to a service. Unmatched requests return a 404 error.
+</Note>
+
+## Component Responsibilities
+
+<CardGroup cols={2}>
+  <Card title="EntryPoints" icon="door-open" href="/routing/entrypoints">
+    Network entry points that listen on specific ports for TCP or UDP traffic
+  </Card>
+  
+  <Card title="Routers" icon="route" href="/routing/routers">
+    Analyze incoming requests and match them against rules (Host, Path, Headers)
+  </Card>
+  
+  <Card title="Services" icon="server" href="/routing/services">
+    Load balance requests across multiple backend servers with health checks
+  </Card>
+  
+  <Card title="Middleware" icon="filter" href="/middleware/overview">
+    Transform requests and responses (auth, rate limiting, compression)
+  </Card>
+</CardGroup>
+
+## Complete Routing Example
+
+Here's a complete example showing all routing components working together:
+
+<CodeGroup>
+```yaml Static Configuration
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+```
+
+```yaml Dynamic Configuration
+http:
+  routers:
+    api-router:
+      rule: "Host(`api.example.com`) && PathPrefix(`/v1`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - api-auth
+        - api-ratelimit
+      service: api-service
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    api-auth:
+      basicAuth:
+        users:
+          - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+    
+    api-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+
+  services:
+    api-service:
+      loadBalancer:
+        servers:
+          - url: "http://10.0.1.10:8080"
+          - url: "http://10.0.1.11:8080"
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
+```
+</CodeGroup>
+
+### What This Configuration Does
+
+1. **EntryPoints**: Listens on ports 80 (HTTP) and 443 (HTTPS)
+2. **Router**: Matches requests to `api.example.com` with path `/v1/*`
+3. **Middleware**: Applies basic authentication and rate limiting
+4. **Service**: Load balances between two backend servers with health checks
+5. **TLS**: Automatically obtains certificates from Let's Encrypt
+
+## Protocol Support
+
+Traefik supports multiple protocols for routing:
+
+<Tabs>
+  <Tab title="HTTP/HTTPS">
+    Full HTTP/1.1, HTTP/2, and HTTP/3 support with rich routing rules:
+    
+    - **Host** matching: `Host(`example.com`)`
+    - **Path** matching: `PathPrefix(`/api`)`
+    - **Header** matching: `Header(`Content-Type`, `application/json`)`
+    - **Method** matching: `Method(`POST`)`
+    - **Query** parameters: `Query(`mobile`, `true`)`
+    
+    See [Router configuration](/routing/routers) for all HTTP rules.
+  </Tab>
+  
+  <Tab title="TCP">
+    TCP routing with TLS SNI matching:
+    
+    ```yaml
+    tcp:
+      routers:
+        db-router:
+          rule: "HostSNI(`db.example.com`)"
+          service: postgres-service
+          tls:
+            passthrough: true
+    
+      services:
+        postgres-service:
+          loadBalancer:
+            servers:
+              - address: "10.0.1.20:5432"
+    ```
+    
+    Limited to `HostSNI()` matching for TLS connections.
+  </Tab>
+  
+  <Tab title="UDP">
+    UDP routing for protocols like DNS, QUIC, or custom UDP services:
+    
+    ```yaml
+    udp:
+      routers:
+        dns-router:
+          entryPoints:
+            - dns
+          service: dns-service
+      
+      services:
+        dns-service:
+          loadBalancer:
+            servers:
+              - address: "10.0.1.30:53"
+    ```
+    
+    No rule matching - all UDP traffic on an EntryPoint goes to the service.
+  </Tab>
+</Tabs>
+
+## Router Priority
+
+When multiple routers match a request, Traefik uses **priority** to determine which router handles the request.
+
+<CodeGroup>
+```yaml Default Priority (by rule length)
+http:
+  routers:
+    # Priority: 34 (longer rule)
+    specific-router:
+      rule: "Host(`api.example.com`) && PathPrefix(`/v1`)"
+      service: api-v1
+    
+    # Priority: 21 (shorter rule)
+    generic-router:
+      rule: "Host(`api.example.com`)"
+      service: api-default
+```
+
+```yaml Manual Priority
+http:
+  routers:
+    # Priority: 100 (explicitly set higher)
+    catch-all:
+      rule: "PathPrefix(`/`)"
+      priority: 100
+      service: default-service
+    
+    # Priority: 200 (takes precedence)
+    api-router:
+      rule: "PathPrefix(`/api`)"
+      priority: 200
+      service: api-service
+```
+</CodeGroup>
+
+<Warning>
+Routers with higher priority values are evaluated first. Without explicit priority, longer rules have higher priority.
+</Warning>
+
+## Dynamic Configuration
+
+Traefik supports dynamic configuration from multiple providers:
+
+- **File** - YAML/TOML configuration files
+- **Docker** - Container labels
+- **Kubernetes** - Ingress, IngressRoute CRDs
+- **Consul/Etcd** - Key-value stores
+- **HTTP** - REST API endpoint
+
+See the [Providers documentation](/providers/overview) for provider-specific routing configuration.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use explicit priorities for overlapping routes">
+    When you have multiple routers that could match the same request, set explicit priorities to ensure predictable routing:
+    
+    ```yaml
+    http:
+      routers:
+        api-v2:
+          rule: "Host(`api.example.com`) && PathPrefix(`/v2`)"
+          priority: 200
+          service: api-v2
+        
+        api-v1:
+          rule: "Host(`api.example.com`) && PathPrefix(`/v1`)"
+          priority: 150
+          service: api-v1
+        
+        api-default:
+          rule: "Host(`api.example.com`)"
+          priority: 100
+          service: api-default
+    ```
+  </Accordion>
+  
+  <Accordion title="Combine rules with logical operators">
+    Use `&&` (AND), `||` (OR), and `!` (NOT) for complex routing:
+    
+    ```yaml
+    # Route API requests from specific IPs
+    rule: "PathPrefix(`/api`) && ClientIP(`192.168.1.0/24`)"
+    
+    # Route multiple domains
+    rule: "Host(`example.com`) || Host(`example.org`)"
+    
+    # Exclude admin paths
+    rule: "Host(`app.example.com`) && !PathPrefix(`/admin`)"
+    ```
+  </Accordion>
+  
+  <Accordion title="Enable health checks for production services">
+    Always configure health checks to automatically remove unhealthy servers:
+    
+    ```yaml
+    services:
+      production-service:
+        loadBalancer:
+          servers:
+            - url: "http://10.0.1.10:8080"
+            - url: "http://10.0.1.11:8080"
+          healthCheck:
+            path: /health
+            interval: "10s"
+            timeout: "3s"
+    ```
+  </Accordion>
+  
+  <Accordion title="Use middleware chains efficiently">
+    Order middleware carefully - authentication should come before rate limiting:
+    
+    ```yaml
+    routers:
+      api:
+        middlewares:
+          - api-auth       # 1. Authenticate first
+          - api-ratelimit  # 2. Then rate limit
+          - api-compress   # 3. Finally compress
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Configure EntryPoints" icon="door-open" href="/routing/entrypoints">
+    Set up network entry points for HTTP, HTTPS, TCP, and UDP
+  </Card>
+  
+  <Card title="Create Routers" icon="route" href="/routing/routers">
+    Define routing rules to match and forward requests
+  </Card>
+  
+  <Card title="Setup Services" icon="server" href="/routing/services">
+    Configure load balancing and health checks for backends
+  </Card>
+</CardGroup>

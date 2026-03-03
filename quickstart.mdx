@@ -1,80 +1,260 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick Start Guide"
+description: "Get Traefik up and running with Docker in less than 5 minutes. Learn the basics of reverse proxying and automatic service discovery."
 ---
 
-## Get started in three steps
+# Quick Start Guide
 
-Get your documentation site running locally and make your first customization.
+Get Traefik running with Docker in less than 5 minutes and see automatic service discovery in action.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Before you begin, ensure you have:
 
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- Docker installed and running on your system
+- Basic familiarity with Docker and command line
+- Ports 80 and 8080 available on your machine
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  This guide uses Docker Compose for simplicity. If you prefer another platform, check out our [installation guide](/install).
 </Note>
+
+## Step-by-Step Setup
+
+<Steps>
+  <Step title="Create a Docker Compose File">
+    Create a new directory for your project and a `docker-compose.yml` file:
+
+    ```bash
+    mkdir traefik-quickstart
+    cd traefik-quickstart
+    touch docker-compose.yml
+    ```
+
+    Add the following content to `docker-compose.yml`:
+
+    <CodeGroup>
+    ```yaml docker-compose.yml
+    services:
+
+      traefik:
+        image: "traefik:v3.6"
+        container_name: "traefik"
+        command:
+          - "--api.insecure=true"
+          - "--providers.docker=true"
+          - "--providers.docker.exposedbydefault=false"
+          - "--entryPoints.web.address=:80"
+        ports:
+          - "80:80"
+          - "8080:8080"
+        volumes:
+          - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+      whoami:
+        image: "traefik/whoami"
+        container_name: "simple-service"
+        labels:
+          - "traefik.enable=true"
+          - "traefik.http.routers.whoami.rule=Host(`whoami.localhost`)"
+          - "traefik.http.routers.whoami.entrypoints=web"
+    ```
+    </CodeGroup>
+
+    <Tip>
+      Replace `whoami.localhost` with your own domain if you want to use a custom domain. For local testing, `.localhost` domains work out of the box.
+    </Tip>
+  </Step>
+
+  <Step title="Start Traefik and the Service">
+    Launch the containers using Docker Compose:
+
+    ```bash
+    docker compose up -d
+    ```
+
+    This command will:
+    - Pull the Traefik and whoami images (if not already present)
+    - Start both containers in detached mode
+    - Configure Traefik to automatically discover the whoami service
+
+    <Note>
+      The first run may take a moment while Docker downloads the images.
+    </Note>
+  </Step>
+
+  <Step title="Verify the Setup">
+    Test that Traefik is routing traffic correctly:
+
+    ```bash
+    curl http://whoami.localhost
+    ```
+
+    You should see output similar to:
+
+    ```text
+    Hostname: d7f919e54651
+    IP: 127.0.0.1
+    IP: 192.168.64.2
+    GET / HTTP/1.1
+    Host: whoami.localhost
+    User-Agent: curl/7.52.1
+    Accept: */*
+    Accept-Encoding: gzip
+    X-Forwarded-For: 192.168.64.1
+    X-Forwarded-Host: whoami.localhost
+    X-Forwarded-Port: 80
+    X-Forwarded-Proto: http
+    X-Forwarded-Server: 7f0c797dbc51
+    X-Real-Ip: 192.168.64.1
+    ```
+
+    <Tip>
+      If you're using a browser, navigate to `http://whoami.localhost` to see the same output.
+    </Tip>
+  </Step>
+
+  <Step title="Explore the Dashboard">
+    Traefik includes a built-in dashboard for monitoring and debugging:
+
+    Open your browser and navigate to: `http://localhost:8080`
+
+    The dashboard shows:
+    - Active entrypoints
+    - Configured routers
+    - Registered services
+    - Middleware chains
+    - Real-time metrics
+
+    <Warning>
+      The `--api.insecure=true` flag is used for simplicity in this quickstart. In production, always secure your API and dashboard with proper authentication.
+    </Warning>
+  </Step>
+</Steps>
+
+## Understanding the Configuration
+
+Let's break down what each part does:
+
+### Traefik Container Configuration
+
+<CodeGroup>
+```yaml EntryPoints
+command:
+  - "--entryPoints.web.address=:80"
+ports:
+  - "80:80"
+```
+
+```yaml Docker Provider
+command:
+  - "--providers.docker=true"
+  - "--providers.docker.exposedbydefault=false"
+volumes:
+  - "/var/run/docker.sock:/var/run/docker.sock:ro"
+```
+
+```yaml Dashboard Access
+command:
+  - "--api.insecure=true"
+ports:
+  - "8080:8080"
+```
+</CodeGroup>
+
+**EntryPoints**: Define where Traefik listens for incoming traffic. Here, we create an entrypoint called `web` on port 80.
+
+**Docker Provider**: Enables Traefik to automatically discover services from Docker. The `exposedbydefault=false` setting means containers must explicitly opt-in with labels.
+
+**API/Dashboard**: Exposes the Traefik dashboard on port 8080 for monitoring and debugging.
+
+### Service Container Labels
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.whoami.rule=Host(`whoami.localhost`)"
+  - "traefik.http.routers.whoami.entrypoints=web"
+```
+
+- `traefik.enable=true`: Tells Traefik to expose this container
+- `traefik.http.routers.whoami.rule`: Defines the routing rule (host-based)
+- `traefik.http.routers.whoami.entrypoints=web`: Routes through the `web` entrypoint
+
+## Adding More Services
+
+To add another service, simply add it to your `docker-compose.yml`:
+
+```yaml
+services:
+  # ... existing traefik and whoami services ...
+
+  nginx:
+    image: nginx:latest
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nginx.rule=Host(`nginx.localhost`)"
+      - "traefik.http.routers.nginx.entrypoints=web"
+```
+
+Restart the stack:
+
+```bash
+docker compose up -d
+```
+
+Now you can access your nginx service at `http://nginx.localhost` - no additional Traefik configuration needed!
+
+## Next Steps
+
+Congratulations! You now have Traefik running and automatically routing traffic to your services.
+
+<CardGroup cols={2}>
+  <Card title="Learn Core Concepts" icon="graduation-cap" href="/getting-started/concepts">
+    Understand EntryPoints, Routers, Services, and Providers in depth
+  </Card>
+  <Card title="Production Installation" icon="server" href="/getting-started/install">
+    Deploy Traefik on Kubernetes, AWS ECS, or as a binary
+  </Card>
+  <Card title="Enable HTTPS" icon="shield">
+    Set up automatic SSL/TLS with Let's Encrypt
+  </Card>
+  <Card title="Add Middleware" icon="filter">
+    Enhance your routes with authentication, rate limiting, and more
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Service not accessible">
+    - Verify the container is running: `docker compose ps`
+    - Check Traefik logs: `docker logs traefik`
+    - Ensure the labels are correctly formatted
+    - Confirm the domain resolves to localhost
+  </Accordion>
+
+  <Accordion title="Dashboard not loading">
+    - Ensure port 8080 is not in use by another service
+    - Check that `--api.insecure=true` is in the command list
+    - Verify the Traefik container is running
+  </Accordion>
+
+  <Accordion title="Cannot connect to Docker socket">
+    - Ensure Docker is running
+    - Verify the socket path is correct: `/var/run/docker.sock`
+    - On Windows/Mac, this should work with Docker Desktop
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  For a complete API reference and advanced configuration options, check the Traefik documentation.
+</Tip>
+
+## Clean Up
+
+When you're done experimenting, stop and remove the containers:
+
+```bash
+docker compose down
+```

@@ -1,0 +1,634 @@
+---
+title: "Distributed Tracing"
+description: "Configure distributed tracing with OpenTelemetry to visualize request flows across your infrastructure using Jaeger, Zipkin, and more."
+---
+
+# Distributed Tracing
+
+Distributed tracing provides end-to-end visibility into request flows across your infrastructure. Traefik uses OpenTelemetry, an open standard for distributed tracing compatible with Jaeger, Zipkin, and other tracing backends.
+
+## Overview
+
+Tracing allows you to:
+- Visualize request propagation across services
+- Identify performance bottlenecks
+- Analyze latency distribution
+- Track errors through the request lifecycle
+- Understand service dependencies
+
+Traefik follows [OpenTelemetry semantic conventions v1.37.0](https://github.com/open-telemetry/semantic-conventions/blob/v1.37.0/docs/http/http-spans.md).
+
+## Quick Start
+
+Enable basic tracing:
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  otlp: {}
+```
+
+```toml TOML
+[tracing]
+  [tracing.otlp]
+```
+
+```bash CLI
+--tracing=true
+--tracing.otlp=true
+```
+</CodeGroup>
+
+By default, traces are sent via HTTPS to `https://localhost:4318/v1/traces`.
+
+## Common Configuration
+
+### Service Name
+
+<ParamField path="serviceName" type="string" default="traefik">
+  Service name identifier in the tracing backend.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  serviceName: traefik-prod
+  otlp: {}
+```
+
+```toml TOML
+[tracing]
+  serviceName = "traefik-prod"
+  [tracing.otlp]
+```
+
+```bash CLI
+--tracing.serviceName=traefik-prod
+--tracing.otlp=true
+```
+</CodeGroup>
+
+### Sample Rate
+
+<ParamField path="sampleRate" type="float" default="1.0">
+  Proportion of requests to trace (0.0 to 1.0).
+</ParamField>
+
+Set to `0.1` to trace 10% of requests:
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  sampleRate: 0.1
+```
+
+```toml TOML
+[tracing]
+  sampleRate = 0.1
+```
+
+```bash CLI
+--tracing.sampleRate=0.1
+```
+</CodeGroup>
+
+<Note>
+The OpenTelemetry SDK also supports the `OTEL_TRACES_SAMPLER` environment variable for custom sampling strategies.
+</Note>
+
+### Add Internals
+
+<ParamField path="addInternals" type="boolean" default="false">
+  Enable tracing for internal resources like `ping@internal`.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  addInternals: true
+```
+
+```toml TOML
+[tracing]
+  addInternals = true
+```
+
+```bash CLI
+--tracing.addinternals=true
+```
+</CodeGroup>
+
+### Resource Attributes
+
+<ParamField path="resourceAttributes" type="object" default="{}">
+  Additional resource attributes sent to the collector.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  resourceAttributes:
+    environment: production
+    datacenter: us-east-1
+    version: v2.10
+```
+
+```toml TOML
+[tracing.resourceAttributes]
+  environment = "production"
+  datacenter = "us-east-1"
+  version = "v2.10"
+```
+
+```bash CLI
+--tracing.resourceAttributes.environment=production
+--tracing.resourceAttributes.datacenter=us-east-1
+--tracing.resourceAttributes.version=v2.10
+```
+</CodeGroup>
+
+### Captured Headers
+
+Capture request and response headers as span attributes:
+
+<ParamField path="capturedRequestHeaders" type="array" default="[]">
+  List of request headers to add as span attributes.
+</ParamField>
+
+<ParamField path="capturedResponseHeaders" type="array" default="[]">
+  List of response headers to add as span attributes.
+</ParamField>
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  capturedRequestHeaders:
+    - User-Agent
+    - X-Request-Id
+    - Authorization
+  capturedResponseHeaders:
+    - X-Response-Time
+    - Content-Type
+```
+
+```toml TOML
+[tracing]
+  capturedRequestHeaders = ["User-Agent", "X-Request-Id", "Authorization"]
+  capturedResponseHeaders = ["X-Response-Time", "Content-Type"]
+```
+
+```bash CLI
+--tracing.capturedRequestHeaders=User-Agent,X-Request-Id,Authorization
+--tracing.capturedResponseHeaders=X-Response-Time,Content-Type
+```
+</CodeGroup>
+
+### Safe Query Parameters
+
+<ParamField path="safeQueryParams" type="array" default="[]">
+  Query parameters to NOT redact (all others are redacted by default).
+</ParamField>
+
+By default, all query parameters are redacted for security. Specify safe parameters:
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  safeQueryParams:
+    - page
+    - limit
+    - sort
+```
+
+```toml TOML
+[tracing]
+  safeQueryParams = ["page", "limit", "sort"]
+```
+
+```bash CLI
+--tracing.safeQueryParams=page,limit,sort
+```
+</CodeGroup>
+
+## OpenTelemetry Configuration
+
+### HTTP Protocol
+
+Send traces via HTTP to an OpenTelemetry Collector:
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  otlp:
+    http:
+      endpoint: https://otel-collector:4318/v1/traces
+      headers:
+        X-API-Key: secret-key
+      tls:
+        ca: /path/to/ca.crt
+        cert: /path/to/client.cert
+        key: /path/to/client.key
+        insecureSkipVerify: false
+```
+
+```toml TOML
+[tracing.otlp.http]
+  endpoint = "https://otel-collector:4318/v1/traces"
+  
+  [tracing.otlp.http.headers]
+    X-API-Key = "secret-key"
+  
+  [tracing.otlp.http.tls]
+    ca = "/path/to/ca.crt"
+    cert = "/path/to/client.cert"
+    key = "/path/to/client.key"
+    insecureSkipVerify = false
+```
+
+```bash CLI
+--tracing.otlp.http.endpoint=https://otel-collector:4318/v1/traces
+--tracing.otlp.http.headers.X-API-Key=secret-key
+--tracing.otlp.http.tls.ca=/path/to/ca.crt
+```
+</CodeGroup>
+
+#### HTTP Configuration Options
+
+<ParamField path="otlp.http.endpoint" type="string" default="https://localhost:4318/v1/traces">
+  URL of the OpenTelemetry Collector.
+</ParamField>
+
+<Note>
+To disable TLS, use `http://` instead of `https://` in the endpoint URL.
+</Note>
+
+<ParamField path="otlp.http.headers" type="object" default="{}">
+  Additional headers sent with traces.
+</ParamField>
+
+<ParamField path="otlp.http.tls.ca" type="string">
+  Path to certificate authority file.
+</ParamField>
+
+<ParamField path="otlp.http.tls.cert" type="string">
+  Path to client certificate file.
+</ParamField>
+
+<ParamField path="otlp.http.tls.key" type="string">
+  Path to client private key file.
+</ParamField>
+
+<ParamField path="otlp.http.tls.insecureSkipVerify" type="boolean" default="false">
+  Skip TLS certificate verification.
+</ParamField>
+
+### gRPC Protocol
+
+Send traces via gRPC to an OpenTelemetry Collector:
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  otlp:
+    grpc:
+      endpoint: otel-collector:4317
+      insecure: false
+      headers:
+        Authorization: Bearer token123
+      tls:
+        ca: /path/to/ca.crt
+        cert: /path/to/client.cert
+        key: /path/to/client.key
+```
+
+```toml TOML
+[tracing.otlp.grpc]
+  endpoint = "otel-collector:4317"
+  insecure = false
+  
+  [tracing.otlp.grpc.headers]
+    Authorization = "Bearer token123"
+  
+  [tracing.otlp.grpc.tls]
+    ca = "/path/to/ca.crt"
+    cert = "/path/to/client.cert"
+    key = "/path/to/client.key"
+```
+
+```bash CLI
+--tracing.otlp.grpc.endpoint=otel-collector:4317
+--tracing.otlp.grpc.insecure=false
+--tracing.otlp.grpc.headers.Authorization="Bearer token123"
+--tracing.otlp.grpc.tls.ca=/path/to/ca.crt
+```
+</CodeGroup>
+
+#### gRPC Configuration Options
+
+<ParamField path="otlp.grpc.endpoint" type="string" default="localhost:4317">
+  Address of the OpenTelemetry Collector (format: `host:port`).
+</ParamField>
+
+<ParamField path="otlp.grpc.insecure" type="boolean" default="false">
+  Send traces without using a secured protocol.
+</ParamField>
+
+<ParamField path="otlp.grpc.headers" type="object" default="{}">
+  Additional headers sent with traces.
+</ParamField>
+
+## Trace Propagation
+
+Traefik supports multiple trace context propagation formats via the `OTEL_PROPAGATORS` environment variable:
+
+- `tracecontext` (default) - W3C Trace Context
+- `baggage` (default) - W3C Baggage
+- `b3` - B3 single header
+- `b3multi` - B3 multi header
+- `jaeger` - Jaeger propagation
+- `xray` - AWS X-Ray
+- `ottrace` - OT Trace
+
+### Configure Propagators
+
+Set multiple propagators:
+
+```bash
+OTEL_PROPAGATORS=b3,jaeger
+```
+
+In Docker Compose:
+
+```yaml
+services:
+  traefik:
+    image: traefik:v3.0
+    environment:
+      - OTEL_PROPAGATORS=b3,jaeger
+    command:
+      - --tracing.otlp=true
+```
+
+## Backend Integration Examples
+
+### Jaeger
+
+Connect to Jaeger via OpenTelemetry Collector:
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  serviceName: traefik
+  sampleRate: 1.0
+  otlp:
+    grpc:
+      endpoint: jaeger:4317
+      insecure: true
+```
+
+```toml TOML
+[tracing]
+  serviceName = "traefik"
+  sampleRate = 1.0
+  
+  [tracing.otlp.grpc]
+    endpoint = "jaeger:4317"
+    insecure = true
+```
+</CodeGroup>
+
+Or use the Jaeger agent directly with the OpenTelemetry Collector as a sidecar.
+
+### Zipkin
+
+Connect to Zipkin via OpenTelemetry Collector:
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  serviceName: traefik
+  otlp:
+    http:
+      endpoint: http://otel-collector:4318/v1/traces
+```
+
+```toml TOML
+[tracing]
+  serviceName = "traefik"
+  
+  [tracing.otlp.http]
+    endpoint = "http://otel-collector:4318/v1/traces"
+```
+</CodeGroup>
+
+Configure the OpenTelemetry Collector to export to Zipkin:
+
+```yaml
+# otel-collector-config.yaml
+exporters:
+  zipkin:
+    endpoint: http://zipkin:9411/api/v2/spans
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [zipkin]
+```
+
+### AWS X-Ray
+
+Configure for AWS X-Ray:
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  serviceName: traefik
+  otlp:
+    grpc:
+      endpoint: xray-collector:4317
+      insecure: true
+```
+
+```toml TOML
+[tracing]
+  serviceName = "traefik"
+  
+  [tracing.otlp.grpc]
+    endpoint = "xray-collector:4317"
+    insecure = true
+```
+</CodeGroup>
+
+Set the X-Ray propagator:
+
+```bash
+OTEL_PROPAGATORS=xray
+```
+
+## Complete Examples
+
+### Production Tracing Setup
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  serviceName: traefik-prod
+  sampleRate: 0.1
+  addInternals: false
+  resourceAttributes:
+    environment: production
+    datacenter: us-east-1
+    cluster: prod-1
+  capturedRequestHeaders:
+    - User-Agent
+    - X-Request-Id
+  capturedResponseHeaders:
+    - X-Response-Time
+  safeQueryParams:
+    - page
+    - limit
+  otlp:
+    grpc:
+      endpoint: otel-collector:4317
+      headers:
+        Authorization: Bearer prod-token
+      tls:
+        ca: /etc/traefik/certs/ca.crt
+        cert: /etc/traefik/certs/client.crt
+        key: /etc/traefik/certs/client.key
+```
+
+```toml TOML
+[tracing]
+  serviceName = "traefik-prod"
+  sampleRate = 0.1
+  addInternals = false
+  
+  [tracing.resourceAttributes]
+    environment = "production"
+    datacenter = "us-east-1"
+    cluster = "prod-1"
+  
+  capturedRequestHeaders = ["User-Agent", "X-Request-Id"]
+  capturedResponseHeaders = ["X-Response-Time"]
+  safeQueryParams = ["page", "limit"]
+  
+  [tracing.otlp.grpc]
+    endpoint = "otel-collector:4317"
+    
+    [tracing.otlp.grpc.headers]
+      Authorization = "Bearer prod-token"
+    
+    [tracing.otlp.grpc.tls]
+      ca = "/etc/traefik/certs/ca.crt"
+      cert = "/etc/traefik/certs/client.crt"
+      key = "/etc/traefik/certs/client.key"
+```
+</CodeGroup>
+
+### Development Setup
+
+<CodeGroup>
+```yaml YAML
+tracing:
+  serviceName: traefik-dev
+  sampleRate: 1.0
+  addInternals: true
+  otlp:
+    http:
+      endpoint: http://localhost:4318/v1/traces
+```
+
+```toml TOML
+[tracing]
+  serviceName = "traefik-dev"
+  sampleRate = 1.0
+  addInternals = true
+  
+  [tracing.otlp.http]
+    endpoint = "http://localhost:4318/v1/traces"
+```
+</CodeGroup>
+
+### Docker Compose with Jaeger
+
+```yaml
+version: '3'
+
+services:
+  traefik:
+    image: traefik:v3.0
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --entryPoints.web.address=:80
+      - --tracing.serviceName=traefik
+      - --tracing.sampleRate=1.0
+      - --tracing.otlp.grpc.endpoint=jaeger:4317
+      - --tracing.otlp.grpc.insecure=true
+    environment:
+      - OTEL_PROPAGATORS=jaeger
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+```
+
+Access Jaeger UI at `http://localhost:16686`.
+
+## Span Attributes
+
+Traefik creates spans with OpenTelemetry semantic conventions:
+
+### HTTP Span Attributes
+
+- `http.request.method` - HTTP method (GET, POST, etc.)
+- `http.response.status_code` - HTTP status code
+- `network.protocol.name` - Protocol name (http/1.1, h2, etc.)
+- `server.address` - Server hostname
+- `server.port` - Server port
+- `url.scheme` - URL scheme (http, https)
+- `url.path` - Request path
+- `user_agent.original` - User-Agent header
+
+### Traefik-Specific Attributes
+
+- `traefik.router.name` - Router that handled the request
+- `traefik.service.name` - Service that handled the request
+- `traefik.entrypoint.name` - EntryPoint that received the request
+
+## Best Practices
+
+<Note>
+**Performance Optimization**
+- Use sampling (e.g., `sampleRate: 0.1`) in high-traffic environments
+- Avoid capturing large headers or sensitive data
+- Monitor collector resource usage
+</Note>
+
+<Note>
+**Security**
+- Redact sensitive query parameters (default behavior)
+- Use TLS for collector connections in production
+- Avoid capturing Authorization headers unless necessary
+- Secure the collector endpoint with authentication
+</Note>
+
+<Note>
+**Troubleshooting**
+- Verify collector connectivity with `--log.level=DEBUG`
+- Check trace sampling configuration
+- Validate propagation headers in requests
+- Monitor collector for errors
+</Note>

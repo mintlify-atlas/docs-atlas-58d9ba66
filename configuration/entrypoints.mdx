@@ -1,0 +1,520 @@
+---
+title: 'EntryPoints Configuration'
+description: 'Configure network entry points where Traefik listens for incoming TCP, UDP, and HTTP traffic.'
+---
+
+# EntryPoints
+
+Defining Network Entry Points for Incoming Traffic
+
+EntryPoints are the network entry points into Traefik. They define the ports on which Traefik listens for incoming connections and whether to use TCP or UDP protocols.
+
+## Basic Configuration
+
+### Defining EntryPoints
+
+EntryPoints are part of the **static configuration** and must be defined at startup.
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      web:
+        address: ":80"
+      
+      websecure:
+        address: ":443"
+      
+      metrics:
+        address: ":8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints]
+      [entryPoints.web]
+        address = ":80"
+      
+      [entryPoints.websecure]
+        address = ":443"
+      
+      [entryPoints.metrics]
+        address = ":8080"
+    ```
+  </Tab>
+  
+  <Tab title="CLI">
+    ```bash
+    --entryPoints.web.address=:80 \
+    --entryPoints.websecure.address=:443 \
+    --entryPoints.metrics.address=:8080
+    ```
+  </Tab>
+</Tabs>
+
+### Address Format
+
+The address format is: `[host]:port[/tcp|/udp]`
+
+- **Port only**: `:80` - Listen on all interfaces on port 80 (TCP by default)
+- **Host and port**: `192.168.1.10:8080` - Listen on specific IP
+- **IPv6**: `[::1]:80` - IPv6 localhost
+- **UDP**: `:53/udp` - Listen on UDP port 53
+- **TCP (explicit)**: `:80/tcp` - Explicitly specify TCP
+
+<CodeGroup>
+```yaml Port 80 Only
+entryPoints:
+  web:
+    address: ":80"
+```
+
+```yaml Specific IP Address
+entryPoints:
+  web:
+    address: "192.168.1.10:8080"
+```
+
+```yaml UDP Protocol
+entryPoints:
+  dns:
+    address: ":53/udp"
+```
+
+```yaml Both TCP and UDP on Same Port
+entryPoints:
+  coap-tcp:
+    address: ":5683/tcp"
+  coap-udp:
+    address: ":5683/udp"
+```
+</CodeGroup>
+
+## HTTP Configuration
+
+### Automatic HTTPS Redirection
+
+Redirect all HTTP traffic to HTTPS:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      web:
+        address: ":80"
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+              permanent: true
+      
+      websecure:
+        address: ":443"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.web]
+      address = ":80"
+      [entryPoints.web.http.redirections.entryPoint]
+        to = "websecure"
+        scheme = "https"
+        permanent = true
+
+    [entryPoints.websecure]
+      address = ":443"
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="to" type="string" required>
+  Target EntryPoint name or port (e.g., `websecure` or `:443`)
+</ParamField>
+
+<ParamField path="scheme" type="string" default="https">
+  Redirection scheme (`http` or `https`)
+</ParamField>
+
+<ParamField path="permanent" type="boolean" default="true">
+  Use 301 (permanent) vs 302 (temporary) redirect
+</ParamField>
+
+### TLS Configuration
+
+Configure default TLS settings for all routers on this EntryPoint:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      websecure:
+        address: ":443"
+        http:
+          tls:
+            certResolver: letsencrypt
+            domains:
+              - main: "example.com"
+                sans:
+                  - "*.example.com"
+              - main: "example.org"
+                sans:
+                  - "*.example.org"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.websecure]
+      address = ":443"
+      [entryPoints.websecure.http.tls]
+        certResolver = "letsencrypt"
+        [[entryPoints.websecure.http.tls.domains]]
+          main = "example.com"
+          sans = ["*.example.com"]
+        [[entryPoints.websecure.http.tls.domains]]
+          main = "example.org"
+          sans = ["*.example.org"]
+    ```
+  </Tab>
+</Tabs>
+
+### Middlewares
+
+Apply middlewares to all routers on this EntryPoint:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      websecure:
+        address: ":443"
+        http:
+          middlewares:
+            - security-headers@file
+            - rate-limit@file
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.websecure]
+      address = ":443"
+      [entryPoints.websecure.http]
+        middlewares = ["security-headers@file", "rate-limit@file"]
+    ```
+  </Tab>
+</Tabs>
+
+## Transport Configuration
+
+### Timeouts
+
+Configure connection timeouts:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      web:
+        address: ":80"
+        transport:
+          respondingTimeouts:
+            readTimeout: "60s"
+            writeTimeout: "60s"
+            idleTimeout: "180s"
+          lifeCycle:
+            requestAcceptGraceTimeout: "10s"
+            graceTimeOut: "10s"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.web]
+      address = ":80"
+      [entryPoints.web.transport.respondingTimeouts]
+        readTimeout = "60s"
+        writeTimeout = "60s"
+        idleTimeout = "180s"
+      [entryPoints.web.transport.lifeCycle]
+        requestAcceptGraceTimeout = "10s"
+        graceTimeOut = "10s"
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="readTimeout" type="duration" default="60s">
+  Maximum duration for reading the entire request including body
+</ParamField>
+
+<ParamField path="writeTimeout" type="duration" default="0s">
+  Maximum duration before timing out writes of the response
+</ParamField>
+
+<ParamField path="idleTimeout" type="duration" default="180s">
+  Maximum duration an idle keep-alive connection remains open
+</ParamField>
+
+<ParamField path="graceTimeOut" type="duration" default="10s">
+  Duration to give active requests a chance to finish during shutdown
+</ParamField>
+
+## HTTP/2 Configuration
+
+Configure HTTP/2 settings:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      websecure:
+        address: ":443"
+        http2:
+          maxConcurrentStreams: 250
+          maxDecoderHeaderTableSize: 4096
+          maxEncoderHeaderTableSize: 4096
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.websecure]
+      address = ":443"
+      [entryPoints.websecure.http2]
+        maxConcurrentStreams = 250
+        maxDecoderHeaderTableSize = 4096
+        maxEncoderHeaderTableSize = 4096
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="maxConcurrentStreams" type="int" default="250">
+  Number of concurrent streams per connection each client can initiate
+</ParamField>
+
+## HTTP/3 Configuration
+
+Enable HTTP/3 support:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      websecure:
+        address: ":443"
+        http3:
+          advertisedPort: 443
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.websecure]
+      address = ":443"
+      [entryPoints.websecure.http3]
+        advertisedPort = 443
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+HTTP/3 requires a TCP EntryPoint as HTTP/3 always starts as TCP and upgrades to UDP. The EntryPoint automatically listens on UDP for HTTP/3 traffic.
+</Note>
+
+## Proxy Protocol
+
+Enable PROXY protocol support for client IP preservation:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      web:
+        address: ":80"
+        proxyProtocol:
+          trustedIPs:
+            - "192.168.1.0/24"
+            - "172.16.0.0/16"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.web]
+      address = ":80"
+      [entryPoints.web.proxyProtocol]
+        trustedIPs = ["192.168.1.0/24", "172.16.0.0/16"]
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+Only enable `insecure: true` in testing environments. In production, always specify `trustedIPs` to prevent IP spoofing.
+</Warning>
+
+## Forwarded Headers
+
+Trust X-Forwarded-* headers from specific IPs:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      web:
+        address: ":80"
+        forwardedHeaders:
+          trustedIPs:
+            - "127.0.0.1/32"
+            - "192.168.1.7"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.web]
+      address = ":80"
+      [entryPoints.web.forwardedHeaders]
+        trustedIPs = ["127.0.0.1/32", "192.168.1.7"]
+    ```
+  </Tab>
+</Tabs>
+
+## Advanced Options
+
+### AsDefault
+
+Mark an EntryPoint as default for routers without explicit EntryPoints:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      web:
+        address: ":80"
+      websecure:
+        address: ":443"
+        asDefault: true
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.web]
+      address = ":80"
+    
+    [entryPoints.websecure]
+      address = ":443"
+      asDefault = true
+    ```
+  </Tab>
+</Tabs>
+
+### ReusePort
+
+Enable SO_REUSEPORT for multiple processes listening on the same port:
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      web:
+        address: ":80"
+        reusePort: true
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    [entryPoints.web]
+      address = ":80"
+      reusePort = true
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+ReusePort is only supported on Linux, FreeBSD, OpenBSD, and Darwin. It's useful for zero-downtime deployments.
+</Note>
+
+## Complete Example
+
+<Tabs>
+  <Tab title="YAML">
+    ```yaml
+    entryPoints:
+      # HTTP EntryPoint with redirect to HTTPS
+      web:
+        address: ":80"
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+        forwardedHeaders:
+          trustedIPs:
+            - "192.168.1.0/24"
+      
+      # HTTPS EntryPoint with TLS
+      websecure:
+        address: ":443"
+        asDefault: true
+        http:
+          tls:
+            certResolver: letsencrypt
+          middlewares:
+            - security-headers@file
+        http2:
+          maxConcurrentStreams: 250
+        http3:
+          advertisedPort: 443
+        transport:
+          respondingTimeouts:
+            readTimeout: "60s"
+            idleTimeout: "180s"
+          lifeCycle:
+            graceTimeOut: "30s"
+      
+      # Metrics EntryPoint (internal only)
+      metrics:
+        address: "127.0.0.1:8080"
+    ```
+  </Tab>
+  
+  <Tab title="TOML">
+    ```toml
+    # HTTP EntryPoint with redirect to HTTPS
+    [entryPoints.web]
+      address = ":80"
+      [entryPoints.web.http.redirections.entryPoint]
+        to = "websecure"
+        scheme = "https"
+      [entryPoints.web.forwardedHeaders]
+        trustedIPs = ["192.168.1.0/24"]
+    
+    # HTTPS EntryPoint with TLS
+    [entryPoints.websecure]
+      address = ":443"
+      asDefault = true
+      [entryPoints.websecure.http.tls]
+        certResolver = "letsencrypt"
+      [entryPoints.websecure.http]
+        middlewares = ["security-headers@file"]
+      [entryPoints.websecure.http2]
+        maxConcurrentStreams = 250
+      [entryPoints.websecure.http3]
+        advertisedPort = 443
+      [entryPoints.websecure.transport.respondingTimeouts]
+        readTimeout = "60s"
+        idleTimeout = "180s"
+      [entryPoints.websecure.transport.lifeCycle]
+        graceTimeOut = "30s"
+    
+    # Metrics EntryPoint (internal only)
+    [entryPoints.metrics]
+      address = "127.0.0.1:8080"
+    ```
+  </Tab>
+</Tabs>

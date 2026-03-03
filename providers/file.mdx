@@ -1,0 +1,656 @@
+---
+title: 'File Provider'
+description: 'Define Traefik configuration using YAML or TOML files for static routing, middleware, and services.'
+---
+
+# File Provider
+
+Good Old Configuration Files
+
+The File provider lets you define dynamic configuration in YAML or TOML files. It's perfect for static configurations, shared middleware, reusable TLS options, and supplementing other providers.
+
+## Why Use File Provider?
+
+✅ **Version control friendly** - Track configuration in Git  
+✅ **Shared resources** - Define middleware and TLS options once  
+✅ **Cross-provider compatibility** - Reference from Docker, Kubernetes, etc.  
+✅ **Go templating** - Generate repetitive configurations dynamically  
+✅ **No external dependencies** - Just files on disk
+
+## Quick Start
+
+<Steps>
+  <Step title="Enable File Provider">
+    <CodeGroup>
+    ```yaml traefik.yml
+    providers:
+      file:
+        directory: "/etc/traefik/dynamic"
+        watch: true
+    ```
+    
+    ```toml traefik.toml
+    [providers.file]
+      directory = "/etc/traefik/dynamic"
+      watch = true
+    ```
+    
+    ```bash CLI
+    --providers.file.directory=/etc/traefik/dynamic
+    --providers.file.watch=true
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Create Dynamic Configuration">
+    ```yaml /etc/traefik/dynamic/config.yml
+    http:
+      routers:
+        my-router:
+          rule: "Host(`example.com`)"
+          service: my-service
+          entryPoints:
+            - web
+      
+      services:
+        my-service:
+          loadBalancer:
+            servers:
+              - url: "http://192.168.1.10:8080"
+              - url: "http://192.168.1.11:8080"
+    ```
+  </Step>
+  
+  <Step title="Auto-Reload Changes">
+    With `watch: true`, Traefik automatically reloads when files change.
+  </Step>
+</Steps>
+
+## File vs Directory
+
+### Single File Mode
+
+```yaml
+providers:
+  file:
+    filename: "/etc/traefik/config.yml"
+    watch: true
+```
+
+All configuration in one file.
+
+### Directory Mode (Recommended)
+
+```yaml
+providers:
+  file:
+    directory: "/etc/traefik/dynamic"
+    watch: true
+```
+
+Split configuration across multiple files:
+
+```
+/etc/traefik/dynamic/
+├── routers.yml
+├── services.yml
+├── middleware.yml
+└── tls.yml
+```
+
+<Note>
+  The `filename` and `directory` options are mutually exclusive. Use `directory` for better organization.
+</Note>
+
+## Complete Example
+
+<CodeGroup>
+```yaml routers.yml
+http:
+  routers:
+    # Web application
+    web-app:
+      rule: "Host(`app.example.com`)"
+      service: web-app
+      entryPoints:
+        - websecure
+      middlewares:
+        - auth@file
+        - compress@file
+      tls:
+        certResolver: letsencrypt
+    
+    # API service
+    api:
+      rule: "Host(`api.example.com`)"
+      service: api
+      entryPoints:
+        - websecure
+      middlewares:
+        - api-auth@file
+        - rate-limit@file
+      tls:
+        certResolver: letsencrypt
+    
+    # HTTP to HTTPS redirect
+    http-redirect:
+      rule: "HostRegexp(`{any:.*}`)"
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-https@file
+      service: noop@internal
+```
+
+```yaml services.yml
+http:
+  services:
+    web-app:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.1.10:3000"
+          - url: "http://192.168.1.11:3000"
+        healthCheck:
+          path: "/health"
+          interval: "10s"
+          timeout: "3s"
+    
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.1.20:8080"
+          - url: "http://192.168.1.21:8080"
+        sticky:
+          cookie:
+            name: "api_session"
+            httpOnly: true
+```
+
+```yaml middleware.yml
+http:
+  middlewares:
+    # Basic authentication
+    auth:
+      basicAuth:
+        users:
+          - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+        usersFile: "/etc/traefik/.htpasswd"
+    
+    # API key authentication
+    api-auth:
+      basicAuth:
+        usersFile: "/etc/traefik/api-users"
+    
+    # Rate limiting
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1s
+    
+    # Compression
+    compress:
+      compress:
+        excludedContentTypes:
+          - "text/event-stream"
+    
+    # HTTPS redirect
+    redirect-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+    
+    # Security headers
+    security-headers:
+      headers:
+        customResponseHeaders:
+          X-Frame-Options: "DENY"
+          X-Content-Type-Options: "nosniff"
+        sslRedirect: true
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+```
+
+```yaml tls.yml
+tls:
+  options:
+    # Modern TLS configuration
+    modern:
+      minVersion: VersionTLS13
+      cipherSuites:
+        - TLS_AES_128_GCM_SHA256
+        - TLS_AES_256_GCM_SHA384
+        - TLS_CHACHA20_POLY1305_SHA256
+    
+    # Compatible TLS configuration
+    compatible:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+  
+  stores:
+    default:
+      defaultCertificate:
+        certFile: "/etc/traefik/certs/default.crt"
+        keyFile: "/etc/traefik/certs/default.key"
+  
+  certificates:
+    - certFile: "/etc/traefik/certs/example.crt"
+      keyFile: "/etc/traefik/certs/example.key"
+      stores:
+        - default
+```
+</CodeGroup>
+
+## Provider Configuration
+
+### filename
+
+_Optional_
+
+Path to a single configuration file:
+
+```yaml
+providers:
+  file:
+    filename: "/path/to/config.yml"
+    watch: true
+```
+
+### directory
+
+_Optional (Recommended)_
+
+Path to directory containing configuration files:
+
+```yaml
+providers:
+  file:
+    directory: "/path/to/config"
+    watch: true
+```
+
+Traefik loads all `.yml`, `.yaml`, and `.toml` files from the directory.
+
+### watch
+
+_Optional, Default: false_
+
+Automatically reload when files change:
+
+```yaml
+providers:
+  file:
+    directory: "/etc/traefik/dynamic"
+    watch: true
+```
+
+<Warning>
+  **Docker/Kubernetes Volume Mounts**: File system notifications may not work properly with mounted volumes. Use the parent directory instead:
+  
+  ```yaml
+  # ❌ Don't mount the file directly
+  volumes:
+    - ./config.yml:/etc/traefik/config.yml
+  
+  # ✅ Mount the parent directory
+  volumes:
+    - ./config:/etc/traefik/config
+  ```
+</Warning>
+
+## Go Templating
+
+Generate repetitive configuration dynamically:
+
+<CodeGroup>
+```yaml Template Example
+http:
+  routers:
+    {{range $i, $e := until 10 }}
+    router-{{ $e }}:
+      rule: "Host(`app-{{ $e }}.example.com`)"
+      service: "service-{{ $e }}"
+      entryPoints:
+        - websecure
+    {{end}}
+  
+  services:
+    {{range $i, $e := until 10 }}
+    service-{{ $e }}:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.1.{{ add 10 $e }}:8080"
+    {{end}}
+```
+
+```yaml Environment Variables
+http:
+  routers:
+    my-router:
+      rule: "Host(`{{ env \"DOMAIN\" }}`)"
+      service: my-service
+  
+  middlewares:
+    auth:
+      basicAuth:
+        users:
+          - "{{ env \"AUTH_USER\" }}"
+```
+</CodeGroup>
+
+<Note>
+  Templating only works in **dynamic configuration files**, not in Traefik's main static configuration.
+</Note>
+
+### Template Functions
+
+Traefik supports [Sprig template functions](https://masterminds.github.io/sprig/):
+
+```yaml
+http:
+  routers:
+    {{range $i, $e := until 5 }}
+    router-{{ $e }}:
+      rule: "Host(`{{ lower (env \"DOMAIN\") }}`)"
+      service: "svc-{{ $e }}"
+    {{end}}
+```
+
+## Cross-Provider Usage
+
+Define shared resources in files and reference from other providers:
+
+<Tabs>
+  <Tab title="File Provider">
+    ```yaml /etc/traefik/dynamic/middleware.yml
+    http:
+      middlewares:
+        common-auth:
+          basicAuth:
+            usersFile: "/etc/traefik/.htpasswd"
+        
+        security-headers:
+          headers:
+            sslRedirect: true
+            stsSeconds: 31536000
+    ```
+  </Tab>
+  
+  <Tab title="Docker">
+    ```yaml docker-compose.yml
+    services:
+      app:
+        image: myapp:latest
+        labels:
+          # Reference middleware from file provider
+          - "traefik.http.routers.app.rule=Host(`app.example.com`)"
+          - "traefik.http.routers.app.middlewares=common-auth@file,security-headers@file"
+    ```
+  </Tab>
+  
+  <Tab title="Kubernetes">
+    ```yaml
+    apiVersion: traefik.io/v1alpha1
+    kind: IngressRoute
+    metadata:
+      name: my-app
+    spec:
+      routes:
+        - match: Host(`app.example.com`)
+          kind: Rule
+          services:
+            - name: my-app
+              port: 80
+          # Reference middleware from file provider
+          middlewares:
+            - name: common-auth@file
+            - name: security-headers@file
+    ```
+  </Tab>
+</Tabs>
+
+## Common Patterns
+
+### Shared Middleware Library
+
+```yaml /etc/traefik/dynamic/middleware-library.yml
+http:
+  middlewares:
+    # Authentication
+    basic-auth:
+      basicAuth:
+        usersFile: "/etc/traefik/users"
+    
+    oauth:
+      forwardAuth:
+        address: "http://oauth-server/verify"
+        trustForwardHeader: true
+    
+    # Security
+    security-headers:
+      headers:
+        customResponseHeaders:
+          X-Frame-Options: "DENY"
+          X-Content-Type-Options: "nosniff"
+          X-XSS-Protection: "1; mode=block"
+        sslRedirect: true
+        stsSeconds: 31536000
+    
+    # Rate limiting
+    rate-100:
+      rateLimit:
+        average: 100
+        burst: 50
+    
+    rate-1000:
+      rateLimit:
+        average: 1000
+        burst: 200
+    
+    # Compression
+    compress:
+      compress: {}
+    
+    # CORS
+    cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+        accessControlAllowOriginList:
+          - "https://example.com"
+        accessControlMaxAge: 100
+```
+
+### TLS Configuration
+
+```yaml /etc/traefik/dynamic/tls.yml
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: true
+    
+    modern:
+      minVersion: VersionTLS13
+    
+    legacy:
+      minVersion: VersionTLS11
+  
+  stores:
+    default:
+      defaultCertificate:
+        certFile: "/certs/default.crt"
+        keyFile: "/certs/default.key"
+  
+  certificates:
+    - certFile: "/certs/example.com.crt"
+      keyFile: "/certs/example.com.key"
+    - certFile: "/certs/api.example.com.crt"
+      keyFile: "/certs/api.example.com.key"
+```
+
+### TCP and UDP Services
+
+```yaml /etc/traefik/dynamic/tcp-udp.yml
+tcp:
+  routers:
+    postgres:
+      rule: "HostSNI(`db.example.com`)"
+      service: postgres
+      entryPoints:
+        - postgresql
+      tls:
+        passthrough: true
+  
+  services:
+    postgres:
+      loadBalancer:
+        servers:
+          - address: "192.168.1.50:5432"
+
+udp:
+  routers:
+    dns:
+      entryPoints:
+        - dns
+      service: dns-service
+  
+  services:
+    dns-service:
+      loadBalancer:
+        servers:
+          - address: "192.168.1.60:53"
+```
+
+## Docker Compose Integration
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v3.6
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Mount static configuration
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      
+      # Mount dynamic configuration directory
+      - ./dynamic:/etc/traefik/dynamic:ro
+      
+      # Mount certificates
+      - ./certs:/certs:ro
+      
+      # Docker socket (if using Docker provider too)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+```
+
+## Troubleshooting
+
+### Configuration Not Loading
+
+<Steps>
+  <Step title="Check File Syntax">
+    ```bash
+    # Validate YAML
+    yamllint /etc/traefik/dynamic/config.yml
+    ```
+  </Step>
+  
+  <Step title="Verify File Permissions">
+    ```bash
+    ls -la /etc/traefik/dynamic/
+    ```
+    
+    Traefik must have read access.
+  </Step>
+  
+  <Step title="Check Traefik Logs">
+    ```bash
+    docker logs traefik
+    ```
+    
+    Look for parsing errors or file watch issues.
+  </Step>
+</Steps>
+
+### Watch Mode Not Working
+
+<Warning>
+  If using Docker volumes or Kubernetes ConfigMaps, mount the **parent directory**, not individual files.
+</Warning>
+
+```yaml
+# ✅ Correct
+volumes:
+  - ./config:/etc/traefik/config
+
+# ❌ Incorrect (watch may not work)
+volumes:
+  - ./config/traefik.yml:/etc/traefik/config/traefik.yml
+```
+
+### Template Errors
+
+Ensure you're using dynamic configuration files, not static:
+
+```yaml
+# ❌ Won't work in traefik.yml (static config)
+providers:
+  file:
+    directory: "/config"
+
+# ✅ Works in /config/dynamic.yml (dynamic config)
+http:
+  routers:
+    {{range $i := until 5}}
+    router-{{ $i }}:
+      # ...
+    {{end}}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Organize by Concern">
+    Split configuration into logical files:
+    - `routers.yml` - Routing rules
+    - `services.yml` - Backend services
+    - `middleware.yml` - Reusable middleware
+    - `tls.yml` - TLS configuration
+  </Step>
+  
+  <Step title="Version Control">
+    Keep configuration in Git for history and rollback capability.
+  </Step>
+  
+  <Step title="Use Templates Wisely">
+    Templates are great for repetitive config, but can make debugging harder. Use sparingly.
+  </Step>
+  
+  <Step title="Enable Watch Mode">
+    Use `watch: true` in development, consider disabling in production for stability.
+  </Step>
+  
+  <Step title="Cross-Provider References">
+    Define common middleware and TLS options in files, reference from Docker/Kubernetes.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Routing Reference" icon="route" href="/routing/providers/file">
+    Detailed routing configuration options
+  </Card>
+  <Card title="Middleware" icon="filter" href="/middlewares/overview">
+    Available middleware and their configuration
+  </Card>
+</CardGroup>

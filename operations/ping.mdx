@@ -1,0 +1,534 @@
+---
+title: "Ping"
+description: "Health check endpoint for monitoring Traefik liveness and readiness"
+---
+
+# Health Check Endpoint
+
+The ping endpoint provides a simple health check mechanism to verify Traefik's operational status.
+
+## Overview
+
+The `/ping` endpoint is a lightweight health check that:
+
+- Returns HTTP 200 with "OK" when Traefik is healthy
+- Returns HTTP 503 during graceful shutdown (configurable)
+- Supports both `GET` and `HEAD` requests
+- Can be exposed on any entry point
+- Used by orchestrators for liveness/readiness probes
+
+<Note>
+  The ping endpoint is disabled by default and must be explicitly enabled in the static configuration.
+</Note>
+
+## Configuration
+
+Enable the ping endpoint in your static configuration:
+
+<CodeGroup>
+```yaml File (YAML)
+ping:
+  entryPoint: "traefik"
+```
+
+```toml File (TOML)
+[ping]
+  entryPoint = "traefik"
+```
+
+```bash CLI
+--ping=true
+--ping.entryPoint=traefik
+```
+</CodeGroup>
+
+### Minimal Configuration
+
+Simply enable ping with default settings:
+
+<CodeGroup>
+```yaml File (YAML)
+ping: {}
+```
+
+```toml File (TOML)
+[ping]
+```
+
+```bash CLI
+--ping=true
+```
+</CodeGroup>
+
+This enables the ping endpoint on the default `traefik` entry point (port 8080).
+
+## Configuration Options
+
+<ParamField path="entryPoint" type="string" default="traefik">
+  Entry point on which to expose the `/ping` endpoint.
+  
+  ```yaml
+  ping:
+    entryPoint: "web"
+  ```
+  
+  If the `traefik` entry point doesn't exist, it's automatically created on port 8080.
+</ParamField>
+
+<ParamField path="manualRouting" type="boolean" default="false">
+  Disable automatic routing to allow custom router configuration for the `ping@internal` service.
+  
+  ```yaml
+  ping:
+    manualRouting: true
+  ```
+  
+  When enabled, you must create a router manually:
+  
+  ```yaml
+  http:
+    routers:
+      ping:
+        rule: "Path(`/ping`)"
+        service: ping@internal
+        entryPoints:
+          - web
+  ```
+</ParamField>
+
+<ParamField path="terminatingStatusCode" type="integer" default="503">
+  HTTP status code returned during graceful shutdown.
+  
+  ```yaml
+  ping:
+    terminatingStatusCode: 204
+  ```
+  
+  Useful when load balancers expect specific codes for terminating instances.
+</ParamField>
+
+## Usage Examples
+
+### Basic Health Check
+
+```bash
+curl http://localhost:8080/ping
+# Output: OK
+
+# Using HEAD request
+curl -I http://localhost:8080/ping
+# HTTP/1.1 200 OK
+```
+
+### Dedicated Health Check Entry Point
+
+Create a separate entry point for health checks:
+
+<CodeGroup>
+```yaml File (YAML)
+entryPoints:
+  web:
+    address: ":80"
+  health:
+    address: ":8082"
+
+ping:
+  entryPoint: "health"
+```
+
+```toml File (TOML)
+[entryPoints]
+  [entryPoints.web]
+    address = ":80"
+  [entryPoints.health]
+    address = ":8082"
+
+[ping]
+  entryPoint = "health"
+```
+
+```bash CLI
+--entrypoints.web.address=:80
+--entrypoints.health.address=:8082
+--ping.entryPoint=health
+```
+</CodeGroup>
+
+Access the health check:
+
+```bash
+curl http://localhost:8082/ping
+```
+
+### Custom Termination Status
+
+Configure a custom status code for graceful shutdown:
+
+```yaml
+ping:
+  terminatingStatusCode: 204
+```
+
+During shutdown, the ping endpoint returns HTTP 204 instead of 503.
+
+## Integration Examples
+
+### Docker Health Check
+
+Use the `healthcheck` CLI command in Dockerfiles:
+
+```dockerfile
+FROM traefik:v3.2
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD traefik healthcheck || exit 1
+```
+
+Or in Docker Compose:
+
+```yaml docker-compose.yml
+services:
+  traefik:
+    image: traefik:v3.2
+    command:
+      - --ping=true
+      - --entrypoints.web.address=:80
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+```
+
+### Kubernetes Probes
+
+#### Liveness Probe
+
+```yaml deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+spec:
+  template:
+    spec:
+      containers:
+        - name: traefik
+          image: traefik:v3.2
+          args:
+            - --ping=true
+            - --entrypoints.web.address=:80
+          ports:
+            - name: web
+              containerPort: 80
+            - name: admin
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+```
+
+#### Readiness Probe
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /ping
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+```
+
+#### Using CLI Healthcheck Command
+
+```yaml
+livenessProbe:
+  exec:
+    command:
+      - traefik
+      - healthcheck
+  initialDelaySeconds: 10
+  periodSeconds: 30
+```
+
+### Systemd Watchdog
+
+Traefik automatically integrates with systemd watchdog when configured:
+
+```ini /etc/systemd/system/traefik.service
+[Unit]
+Description=Traefik
+After=network.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/traefik.yml
+Restart=on-failure
+WatchdogSec=30s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Traefik sends watchdog pings automatically when the ping endpoint is enabled.
+
+**Source Reference**: Watchdog implementation in `cmd/traefik/traefik.go:143-167`
+
+### Load Balancer Health Checks
+
+#### AWS Application Load Balancer
+
+```json
+{
+  "HealthCheckPath": "/ping",
+  "HealthCheckPort": "8080",
+  "HealthCheckProtocol": "HTTP",
+  "HealthCheckIntervalSeconds": 30,
+  "HealthCheckTimeoutSeconds": 5,
+  "HealthyThresholdCount": 2,
+  "UnhealthyThresholdCount": 2,
+  "Matcher": {
+    "HttpCode": "200"
+  }
+}
+```
+
+#### HAProxy
+
+```haproxy
+backend traefik_backend
+    option httpchk GET /ping
+    http-check expect status 200
+    server traefik1 10.0.0.1:8080 check inter 10s fall 3 rise 2
+    server traefik2 10.0.0.2:8080 check inter 10s fall 3 rise 2
+```
+
+#### NGINX
+
+```nginx
+upstream traefik {
+    server 10.0.0.1:8080 max_fails=3 fail_timeout=30s;
+    server 10.0.0.2:8080 max_fails=3 fail_timeout=30s;
+}
+
+# Health check (NGINX Plus)
+location /health {
+    health_check uri=/ping interval=10s fails=3 passes=2;
+}
+```
+
+## Manual Routing
+
+For advanced scenarios, disable automatic routing and create custom routers:
+
+<Steps>
+  <Step title="Enable Manual Routing">
+    ```yaml
+    ping:
+      manualRouting: true
+    ```
+  </Step>
+
+  <Step title="Create Custom Router">
+    ```yaml
+    http:
+      routers:
+        ping:
+          rule: "Path(`/health`) || Path(`/ping`)"
+          service: ping@internal
+          entryPoints:
+            - web
+          middlewares:
+            - ip-whitelist
+      
+      middlewares:
+        ip-whitelist:
+          ipAllowList:
+            sourceRange:
+              - "10.0.0.0/8"
+              - "192.168.0.0/16"
+    ```
+  </Step>
+</Steps>
+
+This allows:
+- Custom paths for health checks
+- Authentication or IP filtering
+- Integration with other routers
+
+## Monitoring and Alerting
+
+### Prometheus Monitoring
+
+```yaml
+scrape_configs:
+  - job_name: 'traefik-health'
+    metrics_path: /ping
+    static_configs:
+      - targets: ['traefik:8080']
+```
+
+### Nagios Check
+
+```bash
+#!/bin/bash
+# check_traefik_health.sh
+
+HOST=$1
+PORT=$2
+
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://$HOST:$PORT/ping)
+
+if [ "$RESPONSE" -eq 200 ]; then
+  echo "OK - Traefik is healthy"
+  exit 0
+else
+  echo "CRITICAL - Traefik returned status $RESPONSE"
+  exit 2
+fi
+```
+
+### Custom Health Check Script
+
+```bash
+#!/bin/bash
+# advanced-health-check.sh
+
+PING_URL="http://localhost:8080/ping"
+MAX_RETRIES=3
+RETRY_DELAY=2
+
+for i in $(seq 1 $MAX_RETRIES); do
+  if curl -sf "$PING_URL" > /dev/null; then
+    echo "Health check passed"
+    exit 0
+  fi
+  
+  if [ $i -lt $MAX_RETRIES ]; then
+    echo "Health check failed, retrying in ${RETRY_DELAY}s..."
+    sleep $RETRY_DELAY
+  fi
+done
+
+echo "Health check failed after $MAX_RETRIES attempts"
+exit 1
+```
+
+## Graceful Shutdown Behavior
+
+During graceful shutdown:
+
+1. Traefik receives termination signal (SIGTERM, SIGINT)
+2. Ping endpoint starts returning `terminatingStatusCode` (default: 503)
+3. Load balancers detect unhealthy status and stop routing traffic
+4. Traefik completes in-flight requests
+5. Traefik shuts down cleanly
+
+**Configure shutdown grace period**:
+
+```yaml docker-compose.yml
+services:
+  traefik:
+    image: traefik:v3.2
+    stop_grace_period: 30s
+```
+
+```yaml kubernetes
+terminationGracePeriodSeconds: 30
+```
+
+## Troubleshooting
+
+### Ping Returns 404
+
+<Steps>
+  <Step title="Verify Ping is Enabled">
+    Check that `ping=true` in your static configuration.
+  </Step>
+  
+  <Step title="Check Entry Point">
+    Confirm the entry point specified in `ping.entryPoint` exists and is accessible.
+  </Step>
+  
+  <Step title="Test Directly">
+    ```bash
+    curl -v http://localhost:8080/ping
+    ```
+  </Step>
+</Steps>
+
+### Healthcheck Command Fails
+
+```bash
+# Enable debug logging
+traefik healthcheck --log.level=DEBUG
+
+# Verify ping configuration
+cat /etc/traefik/traefik.yml | grep -A 3 ping
+
+# Check if Traefik is running
+ps aux | grep traefik
+```
+
+### Connection Refused
+
+- Verify Traefik is running: `docker ps` or `systemctl status traefik`
+- Check firewall rules allow access to the ping port
+- Ensure the entry point address is correct
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Dedicated Entry Point">
+    Create a separate entry point for health checks to avoid exposing them publicly:
+    
+    ```yaml
+    entryPoints:
+      health:
+        address: ":8082"
+    ping:
+      entryPoint: "health"
+    ```
+  </Step>
+
+  <Step title="Configure Appropriate Intervals">
+    Balance between quick failure detection and avoiding excessive overhead:
+    
+    - Liveness: 30s interval, 3 failures
+    - Readiness: 10s interval, 2 failures
+  </Step>
+
+  <Step title="Set Termination Status Code">
+    Configure to match your load balancer's expectations:
+    
+    ```yaml
+    ping:
+      terminatingStatusCode: 204  # For AWS ALB
+    ```
+  </Step>
+
+  <Step title="Monitor Health Check Metrics">
+    Track health check success/failure rates in your monitoring system.
+  </Step>
+</Steps>
+
+## Source Code References
+
+- Ping endpoint configuration: `cmd/configuration.go`
+- Health check command: `cmd/healthcheck/healthcheck.go:48-84`
+- Watchdog integration: `cmd/traefik/traefik.go:143-167`
+
+## Additional Resources
+
+- [CLI Healthcheck Command](/operations/cli#healthcheck)
+- [API Documentation](/operations/api)
+- [Deployment Best Practices](/operations/deployment)

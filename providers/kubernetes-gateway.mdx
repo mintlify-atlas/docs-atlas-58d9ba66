@@ -1,0 +1,762 @@
+---
+title: 'Kubernetes Gateway API Provider'
+description: 'Use the Kubernetes Gateway API standard for advanced routing with role-based configuration in Traefik.'
+---
+
+# Kubernetes Gateway API Provider
+
+The Future of Kubernetes Ingress - Gateway API Standard
+
+The Kubernetes Gateway API provider implements the [Gateway API](https://gateway-api.sigs.k8s.io/) specification from Kubernetes SIGs. This next-generation API provides role-oriented design, portability, and expressive routing capabilities.
+
+## What is Gateway API?
+
+Gateway API is a Kubernetes SIG project providing:
+
+✅ **Role-oriented design** - Separate concerns between platform and application teams  
+✅ **Portable configuration** - Works across different ingress controllers  
+✅ **Expressive routing** - Advanced matching and traffic management  
+✅ **Future Kubernetes standard** - Eventually replaces Ingress  
+
+## Conformance
+
+Traefik supports **Gateway API v1.4.0**:
+
+- ✅ Full HTTP core and extended features
+- ✅ TCPRoute (Experimental channel)
+- ✅ TLSRoute (Experimental channel)
+- 📋 See [conformance report](https://github.com/kubernetes-sigs/gateway-api/tree/main/conformance/reports/v1.4.0/traefik-traefik)
+
+## Quick Start
+
+<Steps>
+  <Step title="Install Gateway API CRDs">
+    ```bash
+    # Standard channel (HTTP routing)
+    kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
+    
+    # OR Experimental channel (includes TCP/TLS)
+    kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/experimental-install.yaml
+    ```
+  </Step>
+  
+  <Step title="Install Traefik RBAC">
+    ```bash
+    kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.6/docs/content/reference/dynamic-configuration/kubernetes-gateway-rbac.yml
+    ```
+  </Step>
+  
+  <Step title="Enable Provider">
+    <CodeGroup>
+    ```yaml Static Config
+    providers:
+      kubernetesGateway:
+        enabled: true
+    ```
+    
+    ```bash CLI
+    --providers.kubernetesgateway=true
+    ```
+    
+    ```yaml Helm values.yaml
+    providers:
+      kubernetesGateway:
+        enabled: true
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Create Gateway and Route">
+    ```yaml
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: GatewayClass
+    metadata:
+      name: traefik
+    spec:
+      controllerName: traefik.io/gateway-controller
+    
+    ---
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: Gateway
+    metadata:
+      name: my-gateway
+      namespace: default
+    spec:
+      gatewayClassName: traefik
+      listeners:
+        - name: http
+          protocol: HTTP
+          port: 80
+        - name: https
+          protocol: HTTPS
+          port: 443
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - name: my-cert
+    
+    ---
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: my-route
+      namespace: default
+    spec:
+      parentRefs:
+        - name: my-gateway
+      hostnames:
+        - "example.com"
+      rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+          backendRefs:
+            - name: my-service
+              port: 80
+    ```
+  </Step>
+</Steps>
+
+## Gateway API Resources
+
+### GatewayClass
+
+Defines the controller (Traefik):
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: traefik
+spec:
+  controllerName: traefik.io/gateway-controller
+  description: "Traefik Gateway Controller"
+```
+
+### Gateway
+
+Defines infrastructure (listeners, ports):
+
+<CodeGroup>
+```yaml HTTP + HTTPS
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: production-gateway
+  namespace: default
+spec:
+  gatewayClassName: traefik
+  listeners:
+    # HTTP listener
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+    
+    # HTTPS listener
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.example.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-cert
+            namespace: default
+```
+
+```yaml TCP Listener
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: tcp-gateway
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: mysql
+      protocol: TCP
+      port: 3306
+```
+</CodeGroup>
+
+### HTTPRoute
+
+Define HTTP routing rules:
+
+<CodeGroup>
+```yaml Basic Routing
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+  namespace: production
+spec:
+  parentRefs:
+    - name: production-gateway
+      namespace: default
+  
+  hostnames:
+    - "api.example.com"
+  
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+      backendRefs:
+        - name: api-v1
+          port: 8080
+```
+
+```yaml Advanced Matching
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: advanced-route
+spec:
+  parentRefs:
+    - name: production-gateway
+  
+  rules:
+    # Header-based routing
+    - matches:
+        - headers:
+            - name: X-Version
+              value: beta
+          path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        - name: api-beta
+          port: 8080
+    
+    # Query parameter matching
+    - matches:
+        - queryParams:
+            - name: version
+              value: "2"
+      backendRefs:
+        - name: api-v2
+          port: 8080
+```
+
+```yaml Traffic Splitting
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: canary-route
+spec:
+  parentRefs:
+    - name: production-gateway
+  
+  hostnames:
+    - "app.example.com"
+  
+  rules:
+    - backendRefs:
+        # 90% to stable
+        - name: app-stable
+          port: 80
+          weight: 90
+        # 10% to canary
+        - name: app-canary
+          port: 80
+          weight: 10
+```
+</CodeGroup>
+
+### TCPRoute (Experimental)
+
+Route TCP traffic:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: database-route
+spec:
+  parentRefs:
+    - name: tcp-gateway
+      sectionName: mysql
+  
+  rules:
+    - backendRefs:
+        - name: mysql-primary
+          port: 3306
+```
+
+<Note>
+  TCPRoute requires `experimentalChannel: true` and experimental CRDs.
+</Note>
+
+### TLSRoute (Experimental)
+
+Route based on SNI:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: tls-route
+spec:
+  parentRefs:
+    - name: production-gateway
+  
+  hostnames:
+    - "secure.example.com"
+  
+  rules:
+    - backendRefs:
+        - name: secure-backend
+          port: 443
+```
+
+## Provider Configuration
+
+### endpoint
+
+_Optional, Default: Auto-detected_
+
+```yaml
+providers:
+  kubernetesGateway:
+    endpoint: "https://kubernetes.default.svc"
+```
+
+### namespaces
+
+_Optional, Default: All namespaces_
+
+```yaml
+providers:
+  kubernetesGateway:
+    namespaces:
+      - default
+      - production
+```
+
+### labelselector
+
+_Optional, Default: ""_
+
+Filter GatewayClass resources:
+
+```yaml
+providers:
+  kubernetesGateway:
+    labelSelector: "environment=production"
+```
+
+### experimentalChannel
+
+_Optional, Default: false_
+
+Enable TCPRoute and TLSRoute:
+
+```yaml
+providers:
+  kubernetesGateway:
+    experimentalChannel: true
+```
+
+<Warning>
+  Requires experimental CRDs to be installed.
+</Warning>
+
+### statusAddress
+
+Configure Gateway status addresses:
+
+<Tabs>
+  <Tab title="IP Address">
+    ```yaml
+    providers:
+      kubernetesGateway:
+        statusAddress:
+          ip: "203.0.113.10"
+    ```
+  </Tab>
+  
+  <Tab title="Hostname">
+    ```yaml
+    providers:
+      kubernetesGateway:
+        statusAddress:
+          hostname: "lb.example.com"
+    ```
+  </Tab>
+  
+  <Tab title="From Service">
+    ```yaml
+    providers:
+      kubernetesGateway:
+        statusAddress:
+          service:
+            namespace: traefik
+            name: traefik
+    ```
+  </Tab>
+</Tabs>
+
+### nativeLBByDefault
+
+_Optional, Default: false_
+
+```yaml
+providers:
+  kubernetesGateway:
+    nativeLBByDefault: true
+```
+
+### throttleDuration
+
+_Optional, Default: 0_
+
+```yaml
+providers:
+  kubernetesGateway:
+    throttleDuration: "2s"
+```
+
+## Complete Example
+
+<CodeGroup>
+```yaml GatewayClass & Gateway
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: traefik
+spec:
+  controllerName: traefik.io/gateway-controller
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: main-gateway
+  namespace: traefik
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+    
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.example.com"
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-tls
+```
+
+```yaml Application Services
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: production
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 3000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: production
+spec:
+  selector:
+    app: api
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+```yaml HTTPRoutes
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: frontend-route
+  namespace: production
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: traefik
+  
+  hostnames:
+    - "www.example.com"
+    - "example.com"
+  
+  rules:
+    - backendRefs:
+        - name: frontend
+          port: 80
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+  namespace: production
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: traefik
+  
+  hostnames:
+    - "api.example.com"
+  
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-API-Version
+                value: "v1"
+      backendRefs:
+        - name: api
+          port: 80
+```
+</CodeGroup>
+
+## Advanced Patterns
+
+### Request/Response Modification
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: header-modification
+spec:
+  parentRefs:
+    - name: main-gateway
+  
+  rules:
+    - filters:
+        # Add request headers
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            add:
+              - name: X-Custom-Header
+                value: "custom-value"
+            remove:
+              - "X-Bad-Header"
+        
+        # Modify response headers
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: X-Frame-Options
+                value: "DENY"
+      
+      backendRefs:
+        - name: my-service
+          port: 80
+```
+
+### Cross-Namespace Routing
+
+```yaml
+# Gateway in 'traefik' namespace
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shared-gateway
+  namespace: traefik
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      allowedRoutes:
+        namespaces:
+          from: All  # Allow routes from any namespace
+
+---
+# HTTPRoute in 'app1' namespace
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: app1-route
+  namespace: app1
+spec:
+  parentRefs:
+    - name: shared-gateway
+      namespace: traefik  # Reference gateway in different namespace
+  
+  rules:
+    - backendRefs:
+        - name: app1-service
+          port: 80
+```
+
+### URL Rewriting
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: rewrite-route
+spec:
+  parentRefs:
+    - name: main-gateway
+  
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /old-api
+      
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /new-api
+      
+      backendRefs:
+        - name: api-service
+          port: 8080
+```
+
+## Role-Based Configuration
+
+Gateway API supports role separation:
+
+<Tabs>
+  <Tab title="Platform Team">
+    **Platform team** manages infrastructure:
+    
+    - GatewayClass
+    - Gateway
+    - Certificate management
+    
+    ```yaml
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: Gateway
+    metadata:
+      name: production-gateway
+      namespace: platform
+    spec:
+      gatewayClassName: traefik
+      listeners:
+        - name: https
+          protocol: HTTPS
+          port: 443
+    ```
+  </Tab>
+  
+  <Tab title="Application Team">
+    **Application team** manages routes:
+    
+    - HTTPRoute
+    - Service references
+    - Path matching
+    
+    ```yaml
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: my-app
+      namespace: team-a
+    spec:
+      parentRefs:
+        - name: production-gateway
+          namespace: platform
+      rules:
+        - backendRefs:
+            - name: my-service
+              port: 80
+    ```
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+### Gateway Not Ready
+
+```bash
+# Check Gateway status
+kubectl describe gateway my-gateway
+
+# Check GatewayClass
+kubectl get gatewayclass traefik -o yaml
+```
+
+### Route Not Attached
+
+```bash
+# Check HTTPRoute status
+kubectl describe httproute my-route
+
+# Verify parentRef matches Gateway name/namespace
+```
+
+### CRDs Not Found
+
+```bash
+# List Gateway API CRDs
+kubectl get crd | grep gateway
+
+# Reinstall if needed
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
+```
+
+## Migration from Ingress/CRD
+
+<Steps>
+  <Step title="Enable Gateway Provider">
+    Keep existing providers enabled during migration.
+  </Step>
+  
+  <Step title="Create Gateway Resources">
+    Deploy GatewayClass and Gateway.
+  </Step>
+  
+  <Step title="Convert Routes">
+    Gradually migrate Ingress/IngressRoute to HTTPRoute.
+  </Step>
+  
+  <Step title="Test and Verify">
+    Ensure all routes work correctly.
+  </Step>
+  
+  <Step title="Clean Up">
+    Remove old resources after successful migration.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Gateway API Docs" icon="book" href="https://gateway-api.sigs.k8s.io/">
+    Official Gateway API documentation
+  </Card>
+  <Card title="Routing Reference" icon="route" href="/routing/providers/kubernetes-gateway">
+    Traefik-specific Gateway API routing guide
+  </Card>
+</CardGroup>
